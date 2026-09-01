@@ -121,7 +121,8 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
   let thermalFlickerMs = 0;
   const cableViews = THERMAL_FEED_IDS.map((feed, index) => {
     const cable = new Graphics();
-    const plug = new Container(); plug.eventMode = "static"; plug.cursor = "grab"; plug.hitArea = new Rectangle(-20, -17, 40, 34);
+    cable.eventMode = "none";
+    const plug = new Container(); plug.eventMode = "static"; plug.cursor = "grab"; plug.hitArea = new Rectangle(-17, -11, 34, 22);
     const plugArt = new Graphics(); plug.addChild(plugArt);
     const points = Array.from({ length: 14 }, (_, pointIndex) => ({
       x: feedX + 28 + pointIndex * 28,
