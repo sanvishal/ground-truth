@@ -1,7 +1,7 @@
 import { BitmapText, BlurFilter, Container, Graphics, MeshRope, NineSliceSprite, Point, Rectangle, Sprite, Texture } from "pixi.js";
 import { UI_FONT } from "../fonts";
 import type { Level2Action, Level2State, ThermalFeedId, ThermalSocketId, WaterSide } from "../sim/level2";
-import { BALLAST_RATES, getIgnitionContactTime, getIgnitionTimingWindow, getPressureBand, getThermalMismatchCount, getWaterConnections, THERMAL_FEED_IDS, THERMAL_PORT_IDS, TEMPERATURE_SAFE_BAND } from "../sim/level2";
+import { getIgnitionContactTime, getIgnitionTimingWindow, getPressureBand, getThermalMismatchCount, getWaterConnections, THERMAL_FEED_IDS, THERMAL_PORT_IDS, TEMPERATURE_SAFE_BAND } from "../sim/level2";
 import { PanelApertureTransition } from "./panel-aperture-transition";
 import { createHardwareSprite, createInteractionCue, createPanelNameplate, createPanelSurface, type PanelFrameTextures, type PanelNameplateTextures } from "./panel-nine-slice";
 import { panelText } from "./panel-text";
@@ -9,7 +9,7 @@ import { panelText } from "./panel-text";
 export type Level2PuzzleId = "pressure" | "vents" | "water" | "ignition" | "pod";
 export interface Level2PuzzleHandlers {
   snapshot(): Level2State; dispatch(action: Level2Action): void; panelOpened(): void;
-  panelClosed(): void; controlStep(): void; mistake(): void;
+  panelClosed(): void; controlStep(): void;
 }
 export interface Level2PuzzleOverlays {
   readonly container: Container; open(id: Level2PuzzleId): void; refresh(): void;
@@ -29,6 +29,9 @@ export interface Level2PanelHardwareTextures {
   waterElbowFlowing: readonly [Texture, Texture, Texture, Texture];
   waterStageCollar: Texture;
   waterGridTile: Texture;
+  ignitionStarterSocket: Texture;
+  ignitionStarterPlug: Texture;
+  ignitionCable: Texture;
 }
 const text = (value: string, size = 13, fill = 0xc9c5ba) => new BitmapText({ text: value, style: { fontFamily: UI_FONT, fontSize: size, fill } });
 const drawArrow = (graphics: Graphics, x: number, y: number, lane: number, color: number, alpha = 1) => {
@@ -335,27 +338,64 @@ export function createLevel2PuzzleOverlays(
     thermalHardware
   );
 
-  const ignition = shell(nameplates.ignitionSequencer, { x: 132, y: 20, width: 225, rotation: -0.008 }, frames.standard, () => close());
+  const ignition = shell(nameplates.ignitionSequencer, { x: 132, y: 12, width: 225, rotation: -0.008 }, frames.standard, () => close());
+  const ignitionScreenGlow = new Graphics()
+    .roundRect(48, 50, 534, 268, 4)
+    .fill({ color: 0x163c3b, alpha: 0.24 });
+  ignitionScreenGlow.blendMode = "add";
+  ignitionScreenGlow.filters = [new BlurFilter({ strength: 7, quality: 1 })];
+  const ignitionScreen = new Graphics()
+    .roundRect(48, 50, 534, 268, 4)
+    .fill({ color: 0x071112, alpha: 0.98 })
+    .stroke({ color: 0xc08a3d, width: 2, alpha: 0.78 });
+  const ignitionFieldGlow = new Graphics();
+  ignitionFieldGlow.blendMode = "add";
+  ignitionFieldGlow.filters = [new BlurFilter({ strength: 5, quality: 1 })];
   const ignitionField = new Graphics();
+  const ignitionNotesGlow = new Graphics();
+  ignitionNotesGlow.blendMode = "add";
+  ignitionNotesGlow.filters = [new BlurFilter({ strength: 4, quality: 1 })];
   const ignitionNotes = new Graphics();
-  const ignitionStatus = text("PULL THE EXCITER HANDLE", 11); ignitionStatus.anchor.set(0.5); ignitionStatus.position.set(414, 312);
-  const rope = new Graphics();
-  const starterAnchor = { x: 72, y: 307 };
-  const starterRest = { x: 116, y: 307 };
-  const starterHousing = new Graphics()
-    .circle(starterAnchor.x, starterAnchor.y, 27).fill(0x15191a).stroke({ color: 0x8c724d, width: 5 })
-    .circle(starterAnchor.x, starterAnchor.y, 14).fill(0x090b0c).stroke({ color: 0xe2a348, width: 2 })
-    .circle(starterAnchor.x, starterAnchor.y, 4).fill(0x5a4931);
-  const starter = new Container(); starter.eventMode = "static"; starter.cursor = "grab"; starter.hitArea = new Rectangle(-32, -18, 64, 36);
-  starter.addChild(new Graphics()
-    .roundRect(-28, -11, 56, 22, 4).fill(0x6e3c25).stroke({ color: 0xe2a348, width: 2 })
-    .rect(-18, -7, 3, 14).fill(0x2a201b).rect(-6, -7, 3, 14).fill(0x2a201b)
-    .rect(6, -7, 3, 14).fill(0x2a201b).rect(18, -7, 3, 14).fill(0x2a201b)
-    .rect(-4, 11, 8, 7).fill(0x8c724d));
-  const ropePoints = Array.from({ length: 8 }, (_, index) => {
-    const x = starterAnchor.x + index * ((starterRest.x - starterAnchor.x) / 7);
-    return { x, y: starterAnchor.y, px: x, py: starterAnchor.y };
+  const ignitionScanlines = new Graphics();
+  for (let y = 55; y < 314; y += 4) ignitionScanlines.moveTo(53, y).lineTo(577, y);
+  ignitionScanlines.stroke({ color: 0x000000, width: 1, alpha: 0.34 });
+  const ignitionVignette = new Graphics()
+    .roundRect(51, 53, 528, 262, 4)
+    .stroke({ color: 0x000000, width: 7, alpha: 0.32 });
+  const ignitionCountdown = text("3", 48, 0xf0b552);
+  ignitionCountdown.anchor.set(0.5); ignitionCountdown.position.set(315, 174);
+  const starterAnchor = { x: 620, y: 72 };
+  const starterRest = { x: 620, y: 122 };
+  const starterHousing = new Sprite(hardware.ignitionStarterSocket);
+  starterHousing.anchor.set(0.5); starterHousing.position.set(starterAnchor.x, starterAnchor.y);
+  starterHousing.scale.set(46 / hardware.ignitionStarterSocket.width); starterHousing.roundPixels = true;
+  const starter = new Container(); starter.eventMode = "static"; starter.cursor = "grab"; starter.hitArea = new Rectangle(-26, -5, 52, 72);
+  const starterArt = new Sprite(hardware.ignitionStarterPlug);
+  starterArt.anchor.set(0.5, 0.05); starterArt.scale.set(58 / hardware.ignitionStarterPlug.height); starterArt.roundPixels = true;
+  starter.addChild(starterArt);
+  const ropePoints = Array.from({ length: 10 }, (_, index) => {
+    const y = starterAnchor.y + index * ((starterRest.y - starterAnchor.y) / 9);
+    return { x: starterAnchor.x, y, px: starterAnchor.x, py: y };
   });
+  const starterCableScale = 9 / hardware.ignitionCable.height;
+  const starterCableMeshPoints = ropePoints.map((point) => new Point(point.x / starterCableScale, point.y / starterCableScale));
+  const starterCable = new MeshRope({ texture: hardware.ignitionCable, points: starterCableMeshPoints, textureScale: 0 });
+  starterCable.scale.set(starterCableScale); starterCable.roundPixels = true; starterCable.eventMode = "none";
+  const starterCallout = new Container();
+  starterCallout.position.set(620, 195);
+  const starterCalloutLabel = text("DRAG +\nPULL DOWN", 10, 0xd7a54c);
+  starterCalloutLabel.anchor.set(0.5, 0);
+  const starterCalloutArrow = new Graphics()
+    .moveTo(0, 28).lineTo(0, 43)
+    .moveTo(-4, 38).lineTo(0, 43).lineTo(4, 38)
+    .stroke({ color: 0xd7a54c, width: 1.5, alpha: 0.72 });
+  starterCallout.addChild(starterCalloutLabel, starterCalloutArrow);
+  let ignitionHitFlashMs = 0;
+  let ignitionMissFlashMs = 0;
+  const ignitionTargetFeedback: Array<{ kind: "hit" | "miss" | null; ms: number }> = Array.from({ length: 4 }, () => ({ kind: null, ms: 0 }));
+  let ignitionPreviousResults = [...handlers.snapshot().ignition.results];
+  let ignitionHitCount = handlers.snapshot().ignition.results.filter((result) => result === "hit").length;
+  let ignitionMissCount = handlers.snapshot().ignition.results.filter((result) => result === "miss").length;
   let starterDragging = false;
   let starterLastX = 0;
   let starterLastY = 0;
@@ -380,12 +420,12 @@ export function createLevel2PuzzleOverlays(
     starterPeakSpeed = Math.max(starterPeakSpeed, Math.hypot(event.global.x - starterLastX, event.global.y - starterLastY) / Math.max(1, now - starterLastMs) * 1000);
     starterLastX = event.global.x; starterLastY = event.global.y; starterLastMs = now;
     const tail = ropePoints.at(-1)!;
-    tail.x = Math.max(starterRest.x, Math.min(270, point.x));
-    tail.y = Math.max(starterAnchor.y - 24, Math.min(starterAnchor.y + 24, point.y));
-    starterPeakExtension = Math.max(starterPeakExtension, tail.x - starterRest.x);
+    tail.x = Math.max(starterAnchor.x - 28, Math.min(starterAnchor.x + 28, point.x));
+    tail.y = Math.max(starterRest.y, Math.min(286, point.y));
+    starterPeakExtension = Math.max(starterPeakExtension, tail.y - starterRest.y);
   };
   const releaseStarter = () => {
-    if (starterDragging) {
+    if (starterDragging && starterPeakExtension >= 40) {
       const elapsedMs = Math.max(1, performance.now() - starterPullStartMs);
       const distanceSpeed = starterPeakExtension / elapsedMs * 1000;
       handlers.dispatch({ type: "START_IGNITION", pullSpeed: Math.max(starterPeakSpeed, distanceSpeed) });
@@ -395,7 +435,21 @@ export function createLevel2PuzzleOverlays(
   starter.on("globalpointermove", moveStarter);
   starter.on("pointerup", releaseStarter);
   starter.on("pointerupoutside", releaseStarter);
-  ignition.body.addChild(ignitionField, ignitionNotes, starterHousing, rope, starter, ignitionStatus);
+  ignition.body.addChild(
+    ignitionScreenGlow,
+    ignitionScreen,
+    ignitionFieldGlow,
+    ignitionField,
+    ignitionNotesGlow,
+    ignitionNotes,
+    ignitionScanlines,
+    ignitionVignette,
+    ignitionCountdown,
+    starterHousing,
+    starterCable,
+    starter,
+    starterCallout
+  );
 
   const water = shell(nameplates.waterReclamation, { x: 130, y: 18, width: 220, rotation: 0.012 }, frames.reinforced, () => close());
   const tileSize = 58; const boardX = 218; const boardY = 66;
@@ -488,8 +542,9 @@ export function createLevel2PuzzleOverlays(
   water.body.addChild(inlet, inletMask, outlet, outletMask, ...terminalVoids, flowArrowShadow, flowArrows);
 
   const pod = shell(nameplates.transferPod, { x: 110, y: 20, width: 185, rotation: -0.014 }, frames.sealed, () => close());
-  const podDisplay = text("______", 30, 0xe2a348); podDisplay.position.set(250, 68);
+  const podDisplay = text("------", 30, 0xe2a348); podDisplay.position.set(250, 68);
   const podStatus = text("ENTER LAUNCH SEQUENCE", 12); podStatus.position.set(234, 108);
+  pod.body.addChild(podDisplay, podStatus);
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "DEL", "0", "ENTER"].forEach((digit, index) => {
     const key = new Container(); key.position.set(213 + (index % 3) * 82, 148 + Math.floor(index / 3) * 48);
     key.eventMode = "static"; key.cursor = "pointer"; key.hitArea = new Rectangle(0, 0, 68, 36);
@@ -640,25 +695,72 @@ export function createLevel2PuzzleOverlays(
     inlet.texture = hardware.waterStraightFlowing[0];
     outlet.texture = state.water.connected ? hardware.waterStraightFlowing[1] : hardware.waterStraightDry[1];
 
-    const laneStart = 92;
-    const contactX = 562;
-    const laneY = (lane: number) => 98 + lane * 48;
+    const nextHitCount = state.ignition.results.filter((result) => result === "hit").length;
+    const nextMissCount = state.ignition.results.filter((result) => result === "miss").length;
+    state.ignition.results.forEach((result, index) => {
+      if (result === null || result === ignitionPreviousResults[index]) return;
+      const lane = state.ignition.pattern[index];
+      if (lane === undefined) return;
+      ignitionTargetFeedback[lane] = { kind: result, ms: result === "hit" ? 260 : 340 };
+    });
+    ignitionPreviousResults = [...state.ignition.results];
+    if (nextHitCount > ignitionHitCount) ignitionHitFlashMs = 190;
+    if (nextMissCount > ignitionMissCount) ignitionMissFlashMs = 230;
+    ignitionHitCount = nextHitCount;
+    ignitionMissCount = nextMissCount;
+    const laneStart = 78;
+    const contactX = 528;
+    const laneY = (lane: number) => 106 + lane * 58;
+    const levelX = 78;
+    const levelY = 68;
+    const levelWidth = 450;
+    const levelFill = levelWidth * state.ignition.charge / 100;
+    const rhythmPulse = (Math.sin(pulseMs / 210) + 1) * 0.5;
+    ignitionScreenGlow.alpha = 0.72 + rhythmPulse * 0.18;
+    ignitionScanlines.alpha = 0.72 + rhythmPulse * 0.14;
+    ignitionNotesGlow.alpha = 0.82 + rhythmPulse * 0.18;
+    ignitionFieldGlow.clear()
+      .roundRect(levelX, levelY, levelFill, 9, 3)
+      .fill({ color: state.ignition.charge >= 100 ? 0x72c86a : 0xe2a348, alpha: 0.34 });
+    if (ignitionHitFlashMs > 0) ignitionFieldGlow
+      .roundRect(53, 55, 524, 232, 4)
+      .fill({ color: 0x72c86a, alpha: 0.12 * ignitionHitFlashMs / 190 });
+    if (ignitionMissFlashMs > 0) ignitionFieldGlow
+      .roundRect(53, 55, 524, 232, 4)
+      .fill({ color: 0xc65347, alpha: 0.14 * ignitionMissFlashMs / 230 });
     ignitionField.clear()
-      .roundRect(42, 72, 584, 208, 4).fill(0x080a0b).stroke({ color: 0x4c4c45, width: 1 })
-      .roundRect(222, 49, 364, 12, 3).fill(0x050607).stroke({ color: 0x5d543f, width: 1 })
-      .rect(226, 53, state.ignition.charge * 3.56, 4).fill(state.ignition.charge >= 100 ? 0x72c86a : 0xe2a348)
-      .moveTo(582, 45).lineTo(582, 65).stroke({ color: 0x72c86a, width: 2 });
+      .roundRect(levelX - 3, levelY - 3, levelWidth + 6, 15, 4)
+      .fill({ color: 0x1b1409, alpha: 0.94 })
+      .stroke({ color: 0x8b6b35, width: 1, alpha: 0.84 })
+      .roundRect(levelX, levelY, levelFill, 9, 3)
+      .fill(state.ignition.charge >= 100 ? 0x72c86a : 0xe2a348);
+    for (let tick = 1; tick < 4; tick += 1) {
+      const x = levelX + levelWidth * tick / 4;
+      ignitionField.moveTo(x, levelY).lineTo(x, levelY + 9).stroke({ color: 0xd29b45, width: 1, alpha: 0.38 });
+    }
+    const finishWidth = 18;
+    const finishX = levelX + levelWidth - finishWidth;
+    ignitionField.roundRect(finishX, levelY, finishWidth, 9, 2).fill({ color: 0x72c86a, alpha: 0.96 });
+    ignitionFieldGlow.roundRect(finishX, levelY, finishWidth, 9, 2).fill({ color: 0x72c86a, alpha: 0.18 + rhythmPulse * 0.12 });
     for (let lane = 0; lane < 4; lane += 1) {
       const y = laneY(lane);
-      ignitionField.moveTo(laneStart, y).lineTo(contactX + 16, y).stroke({ color: 0x343b39, width: 2 });
-      ignitionField.roundRect(contactX - 52, y - 20, 104, 40, 3).fill({ color: 0xe2a348, alpha: 0.10 }).stroke({ color: 0xe2a348, width: 2 });
-      drawArrow(ignitionField, 66, y, lane, 0xe2a348, 0.68);
-      drawArrow(ignitionField, contactX, y, lane, 0xe2a348, 0.18);
-    }
-    for (let index = 0; index < BALLAST_RATES.length; index += 1) {
-      ignitionField.circle(72 + index * 17, 54, 5).fill(index <= BALLAST_RATES.indexOf(state.ignition.rate) ? 0xe2a348 : 0x29261f);
+      const feedback = ignitionTargetFeedback[lane]!;
+      const feedbackDuration = feedback.kind === "hit" ? 260 : 340;
+      const feedbackStrength = feedback.kind ? feedback.ms / feedbackDuration : 0;
+      const missShake = feedback.kind === "miss" ? Math.sin(pulseMs / 24) * 3 * feedbackStrength : 0;
+      const targetX = contactX + missShake;
+      const targetColor = feedback.kind === "hit" ? 0x72c86a : feedback.kind === "miss" ? 0xc65347 : 0xe2a348;
+      const targetExpansion = feedback.kind === "hit" ? 3 * feedbackStrength : 0;
+      ignitionField.moveTo(laneStart, y).lineTo(contactX - 47, y).stroke({ color: 0x31504e, width: 2, alpha: 0.78 });
+      ignitionField.roundRect(targetX - 42 - targetExpansion, y - 18 - targetExpansion, 84 + targetExpansion * 2, 36 + targetExpansion * 2, 3)
+        .fill({ color: targetColor, alpha: feedback.kind ? 0.12 + feedbackStrength * 0.18 : 0.075 });
+      ignitionFieldGlow.roundRect(targetX - 42 - targetExpansion, y - 18 - targetExpansion, 84 + targetExpansion * 2, 36 + targetExpansion * 2, 3)
+        .fill({ color: targetColor, alpha: feedback.kind ? 0.08 + feedbackStrength * 0.12 : 0.025 + rhythmPulse * 0.025 });
+      drawArrow(ignitionField, 66, y, lane, 0xe2a348, 0.72);
+      drawArrow(ignitionField, targetX, y, lane, targetColor, feedback.kind ? 0.32 + feedbackStrength * 0.42 : 0.16);
     }
     ignitionNotes.clear();
+    ignitionNotesGlow.clear();
     if (state.ignition.running) {
       const travelMs = 1_400;
       state.ignition.pattern.forEach((lane, index) => {
@@ -666,34 +768,54 @@ export function createLevel2PuzzleOverlays(
         const contactTime = getIgnitionContactTime(state, index);
         const x = contactX - (contactTime - state.ignition.runElapsedMs) / travelMs * (contactX - laneStart);
         if (x < laneStart - 22 || x > contactX + 34) return;
-        const y = laneY(lane);
+        const notePhase = pulseMs / 125 + index * 1.7;
+        const noteX = x + Math.cos(notePhase * 0.72) * 0.9;
+        const y = laneY(lane) + Math.sin(notePhase) * 1.5;
         const color = Math.abs(contactTime - state.ignition.runElapsedMs) <= getIgnitionTimingWindow(state) ? 0xf4c15b : 0xb66a38;
-        drawArrow(ignitionNotes, x, y, lane, color);
+        drawArrow(ignitionNotesGlow, noteX, y, lane, color, 0.52);
+        drawArrow(ignitionNotes, noteX - 4, y, lane, color, 0.13);
+        drawArrow(ignitionNotes, noteX, y, lane, color);
       });
     }
-    rope.clear().moveTo(ropePoints[0]!.x, ropePoints[0]!.y);
-    ropePoints.slice(1).forEach((point) => rope.lineTo(point.x, point.y));
-    rope.stroke({ color: 0xb79a66, width: 4 });
+    const countingDown = state.ignition.running && state.ignition.runElapsedMs < 0;
+    ignitionCountdown.visible = countingDown;
+    if (countingDown) {
+      const remainingMs = -state.ignition.runElapsedMs;
+      const phase = (3_000 - remainingMs) % 1_000 / 1_000;
+      ignitionCountdown.text = String(Math.max(1, Math.ceil(remainingMs / 1_000)));
+      ignitionCountdown.scale.set(1.35 - phase * 0.35);
+      ignitionCountdown.alpha = 1 - phase * 0.18;
+    }
+    starterCableMeshPoints.forEach((point, index) => {
+      const source = ropePoints[index]!;
+      point.set(source.x / starterCableScale, source.y / starterCableScale);
+    });
     starter.position.set(ropePoints.at(-1)!.x, ropePoints.at(-1)!.y);
-    ignitionStatus.text = state.ignition.solved ? "IGNITION HELD" : state.ignition.running ? "STRIKE THE CONTACTS" : "PULL THE EXCITER HANDLE FAST";
+    starterCallout.visible = !state.ignition.running && !state.ignition.solved;
 
-    podDisplay.text = `${state.pod.input}${"_".repeat(Math.max(0, 6 - state.pod.input.length))}`;
-    podStatus.text = state.pod.opened ? "POD UNSEALED" : state.plant.transferred ? "ENTER LAUNCH SEQUENCE" : "TRANSFER REQUIRED";
+    podDisplay.text = `${state.pod.input}${"-".repeat(Math.max(0, 6 - state.pod.input.length))}`;
+    podStatus.text = state.pod.opened ? "POD UNSEALED" : "ENTER LAUNCH SEQUENCE";
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (active !== "ignition" || event.repeat) return;
     const key = event.key;
-    if (!handlers.snapshot().ignition.keys.includes(key)) return;
+    const stateBeforeStrike = handlers.snapshot();
+    const ignitionState = stateBeforeStrike.ignition;
+    if (ignitionState.runElapsedMs < 0 || !ignitionState.keys.includes(key)) return;
     event.preventDefault();
     handlers.dispatch({ type: "STRIKE_CONTACT", key });
+    const stateAfterStrike = handlers.snapshot();
+    if (stateAfterStrike.reserve < stateBeforeStrike.reserve) {
+      const lane = ignitionState.keys.indexOf(key);
+      if (lane >= 0) ignitionTargetFeedback[lane] = { kind: "miss", ms: 340 };
+    }
   };
   window.addEventListener("keydown", onKeyDown);
 
   return {
     container,
     open(id) {
-      if (id === "pod" && !handlers.snapshot().plant.transferred) { handlers.mistake(); return; }
       if (activeTransition?.visible) close(false);
       active = id; activeTransition = transitions[id]; handlers.dispatch({ type: "SET_OVERLAY", open: true });
       if (id === "ignition") handlers.dispatch({ type: "SET_IGNITION_PANEL", open: true });
@@ -755,6 +877,12 @@ export function createLevel2PuzzleOverlays(
         });
       }
       if (active === "ignition") {
+        ignitionHitFlashMs = Math.max(0, ignitionHitFlashMs - deltaMs);
+        ignitionMissFlashMs = Math.max(0, ignitionMissFlashMs - deltaMs);
+        ignitionTargetFeedback.forEach((feedback) => {
+          feedback.ms = Math.max(0, feedback.ms - deltaMs);
+          if (feedback.ms === 0) feedback.kind = null;
+        });
         const tail = ropePoints.at(-1)!;
         for (let index = 1; index < ropePoints.length; index += 1) {
           const point = ropePoints[index]!;

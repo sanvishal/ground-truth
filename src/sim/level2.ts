@@ -111,8 +111,7 @@ const digits = (random: () => number) => Array.from({ length: 3 }, () => Math.fl
 const appendHistory = (state: Level2State, event: string): Level2State => ({ ...state, history: [...state.history.slice(-31), event] });
 function phaseFor(state: Level2State): Level2Phase {
   if (state.pod.opened) return "complete";
-  if (state.plant.transferred) return "pod";
-  if (state.water.solved && state.ignition.solved) return "transfer";
+  if (state.water.solved && state.ignition.solved) return "pod";
   if (state.water.solved) return "ignition";
   return safe(state.pressure, state.pressureControl.band) && safe(state.temperature, TEMPERATURE_SAFE_BAND) ? "water" : "stabilize";
 }
@@ -297,24 +296,25 @@ const ignitionGain = (rate: BallastRate) => [6.5, 7.2, 8, 8.6][getBallastRateInd
 const IGNITION_BLEED_PER_SECOND = 2.5;
 const IGNITION_MISS_PENALTY = 5;
 
-function advanceIgnition(state: Level2State, deltaMs: number): { ignition: Level2State["ignition"]; effect?: string } {
-  if (!state.ignition.panelOpen || !state.ignition.running || state.ignition.solved) return { ignition: state.ignition };
+function advanceIgnition(state: Level2State, deltaMs: number): { ignition: Level2State["ignition"]; missCount: number; effect?: string } {
+  if (!state.ignition.panelOpen || !state.ignition.running || state.ignition.solved) return { ignition: state.ignition, missCount: 0 };
   const elapsed = state.ignition.runElapsedMs + deltaMs;
   const window = getIgnitionTimingWindow(state);
   const results = [...state.ignition.results];
   let charge = clamp(state.ignition.charge - deltaMs / 1000 * IGNITION_BLEED_PER_SECOND, 0, IGNITION_STRIKE_THRESHOLD);
-  let missed = false;
+  let missCount = 0;
   for (let index = 0; index < results.length; index += 1) {
     if (results[index] !== null || elapsed <= getIgnitionContactTime(state, index) + window) continue;
     results[index] = "miss";
     charge = clamp(charge - IGNITION_MISS_PENALTY, 0, IGNITION_STRIKE_THRESHOLD);
-    missed = true;
+    missCount += 1;
   }
   const finalTime = getIgnitionContactTime(state, results.length - 1) + window + 450;
   const running = elapsed < finalTime;
   return {
     ignition: { ...state.ignition, runElapsedMs: elapsed, charge, results, running },
-    effect: missed ? "IGNITION_MISS" : !running ? "IGNITION_PASS_COMPLETE" : undefined
+    missCount,
+    effect: missCount > 0 ? "IGNITION_MISS" : !running ? "IGNITION_PASS_COMPLETE" : undefined
   };
 }
 
@@ -377,7 +377,7 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
       const { pressure, pressureControl } = advancePressure(state, action.deltaMs);
       const thermalAdvance = advanceThermal(state, action.deltaMs);
       const { thermal, temperature } = thermalAdvance;
-      const { ignition, effect: ignitionEffect } = advanceIgnition(state, action.deltaMs);
+      const { ignition, missCount: ignitionMissCount, effect: ignitionEffect } = advanceIgnition(state, action.deltaMs);
       const abnormal = isEnvironmentAbnormal({ pressure, pressureControl, temperature, thermal });
       const alarmTotalMs = abnormal ? state.environmentAlarmMs + Math.max(0, action.deltaMs) : 0;
       const alarmCharges = Math.floor(alarmTotalMs / 5_000);
@@ -392,7 +392,7 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
         temperature,
         thermal,
         environmentAlarmMs,
-        reserve: Math.max(0, Math.round((state.reserve - alarmCharges * 0.5) * 100) / 100),
+        reserve: Math.max(0, Math.round((state.reserve - alarmCharges * 0.5 - ignitionMissCount * 0.1) * 100) / 100),
         ignition,
         plant: { ...state.plant, stress, health: Math.round(stress) as 0 | 1 | 2 | 3 | 4 }
       }, [thermalAdvance.effect, ignitionEffect, alarmCharges > 0 ? "AUX_ENVIRONMENT_DRAIN" : undefined].filter((effect): effect is string => Boolean(effect)));
@@ -451,7 +451,7 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
         ignition: {
           ...state.ignition,
           running: true,
-          runElapsedMs: 0,
+          runElapsedMs: -3_000,
           runCount: state.ignition.runCount + 1,
           charge: 0,
           results: state.ignition.pattern.map(() => null)
@@ -459,6 +459,7 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
       }, "IGNITION_STARTED");
     case "STRIKE_CONTACT": {
       if (!state.ignition.running) return fail(state, "The exciter is not turning.");
+      if (state.ignition.runElapsedMs < 0) return fail(state, "The sequencer is counting down.");
       const key = normalizeIgnitionKey(action.key);
       const lane = state.ignition.keys.indexOf(key);
       if (lane < 0) return fail(state, "That key is not wired to the sequencer.");
@@ -476,6 +477,7 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
       if (bestIndex < 0) {
         return succeed({
           ...state,
+          reserve: Math.max(0, Math.round((state.reserve - 0.1) * 100) / 100),
           ignition: { ...state.ignition, charge: clamp(state.ignition.charge - IGNITION_MISS_PENALTY) }
         }, "IGNITION_MISS");
       }
@@ -550,6 +552,6 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
         ignition: { ...state.ignition, solved: true, running: false, charge: 100 }
       }, "DEV_TRANSFER_READY");
     }
-    case "DEV_OPEN_POD": return succeed({ ...state, plant: { ...state.plant, transferred: true }, pod: { input: getLaunchCode(state), opened: true } }, "DEV_POD_OPENED");
+    case "DEV_OPEN_POD": return succeed({ ...state, pod: { input: getLaunchCode(state), opened: true } }, "DEV_POD_OPENED");
   }
 }

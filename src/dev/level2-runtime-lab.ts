@@ -39,7 +39,7 @@ export function mountLevel2RuntimeLab(session: Level2Session, activeTools: () =>
   const title = document.createElement("h2");
   title.textContent = "LEVEL 2 RUNTIME";
   const note = document.createElement("p");
-  note.textContent = "Environment → water → ignition → transfer → pod.";
+  note.textContent = "Environment → water → ignition → pod. A known code may be entered immediately.";
   copy.append(title, note);
   const stateLine = document.createElement("output");
   stateLine.className = "runtime-state";
@@ -47,7 +47,6 @@ export function mountLevel2RuntimeLab(session: Level2Session, activeTools: () =>
 
   const dispatch = (action: Level2Action) => session.dispatch(action);
   const enterCode = () => {
-    if (!session.snapshot().plant.transferred) dispatch({ type: "TRANSFER_SAPLING" });
     for (const digit of getLaunchCode(session.snapshot())) dispatch({ type: "POD_DIGIT", digit });
   };
   const controlGrid = document.createElement("div");
@@ -67,9 +66,7 @@ export function mountLevel2RuntimeLab(session: Level2Session, activeTools: () =>
       button("WIDEN WINDOW", () => dispatch({ type: "ENABLE_IGNITION_ASSIST" })),
       button("SOLVE", () => dispatch({ type: "DEV_SOLVE_IGNITION" }))
     ]),
-    group("TRANSFER + POD", [
-      button("READY TRANSFER", () => dispatch({ type: "DEV_READY_TRANSFER" })),
-      button("TRANSFER", () => dispatch({ type: "TRANSFER_SAPLING" })),
+    group("POD", [
       button("ENTER CODE", enterCode),
       button("SUBMIT CODE", () => dispatch({ type: "SUBMIT_POD_CODE" })),
       button("OPEN POD", () => dispatch({ type: "DEV_OPEN_POD" })),
@@ -91,7 +88,7 @@ export function mountLevel2RuntimeLab(session: Level2Session, activeTools: () =>
       `THERMAL   MISMATCH ${getThermalMismatchCount(state)}  ${state.thermal.waitingForGreen ? "WAITING FOR GREEN" : `NEXT ${Math.ceil(state.thermal.swapCountdownMs / 1000)}s`}  ${THERMAL_FEED_IDS.map((feed) => `${feed}:${state.thermal.connections[feed] ?? "HANGING"}`).join("  ")}`,
       `WATER     ${state.water.solved ? "CERTIFIED" : state.water.invalidOrder ? "FLOW / NOT CERTIFIED" : state.water.rotations.join("")}  LIVE ORDER ${state.water.requiredOrder.join(">")}  CODE ${state.water.digits}`,
       `IGNITION  ${state.ignition.rate.toUpperCase()}  KEYS ${state.ignition.keys.join(" ")}  CHARGE ${state.ignition.charge.toFixed(1)}  ${state.ignition.running ? "RUNNING" : "IDLE"}  ${state.ignition.assist ? "WIDE" : "STANDARD"}  ${state.ignition.solved ? `CODE ${state.ignition.digits}` : ""}`,
-      `TRANSFER  ${state.plant.transferred ? "COMPLETE" : "WAITING"}  POD ${state.pod.input || "______"}`,
+      `POD       ${state.pod.input || "------"}`,
       `FULL CODE ${getLaunchCode(state)}`,
       "",
       ...state.history.slice(-10).reverse()

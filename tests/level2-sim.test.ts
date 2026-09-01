@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyLevel2Action, canTransferSapling, createInitialLevel2State, getIgnitionContactTime,
+  applyLevel2Action, createInitialLevel2State, getIgnitionContactTime, getIgnitionTimingWindow,
   getLaunchCode, getThermalMismatchCount, isEnvironmentAbnormal, isTemperatureAbnormal,
   TEMPERATURE_SAFE_BAND, THERMAL_FEED_IDS, WATER_SOLUTION,
   type BallastRate, type Level2State, type ThermalSocketId
@@ -185,6 +185,21 @@ describe("level 2 simulation", () => {
     expect(high.ignition.charge).toBeGreaterThanOrEqual(100);
   });
 
+  it("drains exactly 0.1 AUX for each ignition mistake", () => {
+    let state = createInitialLevel2State(22);
+    state = apply(state, { type: "SET_IGNITION_PANEL", open: true });
+    state = apply(state, { type: "START_IGNITION", pullSpeed: 900 });
+    state = apply(state, { type: "TICK", deltaMs: 3_000 });
+    const initialReserve = state.reserve;
+    state = apply(state, { type: "STRIKE_CONTACT", key: state.ignition.keys[0] });
+    expect(state.reserve).toBe(initialReserve - 0.1);
+
+    const beforeExpiredNote = state.reserve;
+    state = apply(state, { type: "TICK", deltaMs: getIgnitionContactTime(state, 0) + getIgnitionTimingWindow(state) + 1 });
+    const missedNotes = state.ignition.results.filter((result) => result === "miss").length;
+    expect(state.reserve).toBeCloseTo(beforeExpiredNote - missedNotes * 0.1, 5);
+  });
+
   it("raises ballast one paid step at a time and lowers it freely", () => {
     let state = createInitialLevel2State();
     expect(applyLevel2Action(state, { type: "SET_BALLAST_RATE", rate: "high" }).ok).toBe(false);
@@ -219,10 +234,8 @@ describe("level 2 simulation", () => {
     expect(state.ignition.runElapsedMs).toBe(elapsed + 100);
   });
 
-  it("requires all four stable conditions for transfer and opens the pod with both yields", () => {
-    let state = apply(createInitialLevel2State(), { type: "DEV_READY_TRANSFER" });
-    expect(canTransferSapling(state)).toBe(true);
-    state = apply(state, { type: "TRANSFER_SAPLING" });
+  it("opens the pod immediately when the player already knows the six-digit code", () => {
+    let state = createInitialLevel2State();
     for (const digit of getLaunchCode(state)) state = apply(state, { type: "POD_DIGIT", digit });
     state = apply(state, { type: "SUBMIT_POD_CODE" });
     expect(state.pod.opened).toBe(true);

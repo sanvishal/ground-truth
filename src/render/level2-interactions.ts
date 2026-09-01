@@ -1,7 +1,7 @@
 import { BitmapText, BlurFilter, Container, Graphics, Rectangle } from "pixi.js";
 import { UI_FONT } from "../fonts";
 import type { Level2Action, Level2State } from "../sim/level2";
-import { canTransferSapling, isPressureAbnormal, isTemperatureAbnormal } from "../sim/level2";
+import { isPressureAbnormal, isTemperatureAbnormal } from "../sim/level2";
 import { createLevel2PuzzleOverlays, type Level2PanelHardwareTextures, type Level2PuzzleId } from "./level2-puzzle-overlays";
 import type { PanelFrameTextures, PanelNameplateTextures } from "./panel-nine-slice";
 
@@ -25,7 +25,6 @@ export interface Level2InteractionHandlers {
   panelOpened(): void;
   panelClosed(): void;
   controlStep(): void;
-  mistake(): void;
 }
 
 export interface Level2InteractionLayer {
@@ -51,9 +50,8 @@ const ZONES: readonly ZoneDefinition[] = [
   { id: "ignition", label: "IGNITION SEQUENCER", box: new Rectangle(366, 18, 146, 70), puzzle: "ignition" },
   { id: "sapling", label: "CONTAINMENT CYLINDER", box: new Rectangle(378, 73, 130, 220) },
   { id: "vents", label: "TEMPERATURE CONTROL", box: new Rectangle(512, 105, 188, 168), puzzle: "vents" },
-  { id: "pod", label: "TRANSFER POD", box: new Rectangle(898, 112, 58, 130), puzzle: "pod" },
+  { id: "pod", label: "TRANSFER POD", box: new Rectangle(785, 105, 171, 137), puzzle: "pod" },
   { id: "bloodstreaks", label: "BLOOD STREAKS", box: new Rectangle(225, 356, 292, 54), passive: true },
-  { id: "door_window", label: "DOOR WINDOW", box: new Rectangle(785, 117, 112, 119), passive: true },
   { id: "door_pipe_steam", label: "LEAKING COUPLING", box: new Rectangle(793, 18, 112, 65), passive: true },
   { id: "ceiling_wires", label: "EXPOSED WIRING", box: new Rectangle(625, 0, 132, 73), passive: true },
   { id: "floor_panel", label: "OPEN FLOOR PANEL", box: new Rectangle(584, 337, 126, 74), passive: true }
@@ -68,11 +66,6 @@ export function createLevel2InteractionLayer(
 ): Level2InteractionLayer {
   const container = new Container();
   container.sortableChildren = true;
-  const transferMarker = new BitmapText({ text: "CYLINDER EMPTY  ·  SPECIMEN SECURED", style: { fontFamily: UI_FONT, fontSize: 10, fill: 0xe2a348 } });
-  transferMarker.position.set(358, 298);
-  transferMarker.zIndex = 810_000;
-  transferMarker.visible = false;
-  container.addChild(transferMarker);
 
   const createWarningLed = (x: number, y: number) => {
     const beacon = new Container();
@@ -99,8 +92,7 @@ export function createLevel2InteractionLayer(
     dispatch: handlers.dispatch,
     panelOpened: handlers.panelOpened,
     panelClosed: handlers.panelClosed,
-    controlStep: handlers.controlStep,
-    mistake: handlers.mistake
+    controlStep: handlers.controlStep
   }, panelFrames, panelNameplates, panelHardware);
   const activeViews: Array<{ zone: ZoneDefinition; target: Container; outline: Graphics; shine: Container; progress: number; active: boolean }> = [];
   let refreshAccumulator = 0;
@@ -160,10 +152,7 @@ export function createLevel2InteractionLayer(
     });
     target.on("pointertap", () => {
       tooltip.visible = false;
-      if (zone.id === "sapling") {
-        if (canTransferSapling(handlers.snapshot())) handlers.dispatch({ type: "TRANSFER_SAPLING" });
-        else handlers.inspect("sapling");
-      } else if (zone.puzzle) puzzleOverlays.open(zone.puzzle);
+      if (zone.puzzle) puzzleOverlays.open(zone.puzzle);
       else handlers.inspect(zone.id);
     });
     container.addChild(target);
@@ -177,7 +166,6 @@ export function createLevel2InteractionLayer(
     container,
     refresh() {
       const state = handlers.snapshot();
-      transferMarker.visible = state.plant.transferred;
       pressureWarning.abnormal = isPressureAbnormal(state);
       temperatureWarning.abnormal = isTemperatureAbnormal(state);
       for (const warning of [pressureWarning, temperatureWarning]) {
@@ -187,8 +175,8 @@ export function createLevel2InteractionLayer(
       }
       const podView = activeViews.find((view) => view.zone.id === "pod");
       if (podView) {
-        podView.outline.tint = state.plant.transferred ? 0xffffff : 0x806f56;
-        podView.target.cursor = state.plant.transferred ? "pointer" : "not-allowed";
+        podView.outline.tint = 0xffffff;
+        podView.target.cursor = "pointer";
       }
       puzzleOverlays.refresh();
     },

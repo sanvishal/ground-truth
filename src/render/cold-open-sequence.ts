@@ -1,5 +1,5 @@
 import { BitmapText, Container, Graphics, Rectangle, Sprite, Texture } from "pixi.js";
-import { COLD_OPEN_PANELS } from "../content/cold-open";
+import { COLD_OPEN_PANELS, type ColdOpenPanelCopy } from "../content/cold-open";
 import { DIALOGUE_FONT, UI_FONT } from "../fonts";
 import { ColdOpenDitherFilter } from "./cold-open-dither-filter";
 import { drawBayerMask } from "./screen-dither-transition";
@@ -41,11 +41,21 @@ export interface ColdOpenSequence {
   destroy(): void;
 }
 
+export interface SequenceFinalAction {
+  label?: string;
+  credit?: string;
+  onCredit?: () => void;
+  onAction(): void;
+}
+
 export function createColdOpenSequence(
   textures: readonly Texture[],
   onCharacter?: (character: string) => void,
   onAdvance?: () => void,
-  onPanelChange?: (panelIndex: number) => void
+  onPanelChange?: (panelIndex: number) => void,
+  panels: readonly ColdOpenPanelCopy[] = COLD_OPEN_PANELS,
+  allowSkip = false,
+  finalAction?: SequenceFinalAction
 ): ColdOpenSequence {
   const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const container = new Container();
@@ -78,9 +88,42 @@ export function createColdOpenSequence(
   holdText.anchor.set(1, 0.5);
   holdText.position.set(918, 520);
   holdText.visible = false;
+  const skipText = makeText("ESC TO SKIP", 12, COLORS.muted, UI_FONT);
+  skipText.anchor.set(1, 0);
+  skipText.position.set(918, 18);
+  skipText.visible = allowSkip;
+
+  const finalCredit = makeText(finalAction?.credit ?? "", finalAction?.onCredit ? 18 : 13, finalAction?.onCredit ? COLORS.amber : COLORS.muted, UI_FONT);
+  finalCredit.anchor.set(0.5);
+  finalCredit.position.set(WIDTH / 2, 516);
+  finalCredit.visible = false;
+  if (finalAction?.onCredit) {
+    finalCredit.eventMode = "none";
+    finalCredit.cursor = "pointer";
+    finalCredit.hitArea = new Rectangle(-finalCredit.width / 2 - 8, -finalCredit.height / 2 - 5, finalCredit.width + 16, finalCredit.height + 10);
+    finalCredit.on("pointerover", () => { finalCredit.tint = 0xffd079; });
+    finalCredit.on("pointerout", () => { finalCredit.tint = 0xffffff; });
+    finalCredit.on("pointertap", (event) => {
+      event.stopPropagation();
+      finalAction.onCredit?.();
+    });
+  }
+  const finalActionButton = new Container();
+  finalActionButton.position.set(824, 520);
+  finalActionButton.eventMode = "none";
+  finalActionButton.cursor = "pointer";
+  finalActionButton.hitArea = new Rectangle(-86, -15, 172, 30);
+  const finalActionBack = new Graphics()
+    .roundRect(-86, -15, 172, 30, 3)
+    .fill({ color: COLORS.black, alpha: 0.92 })
+    .stroke({ color: COLORS.amber, width: 1, alpha: 0.72 });
+  const finalActionLabel = makeText(finalAction?.label ?? "", 13, COLORS.amber, UI_FONT);
+  finalActionLabel.anchor.set(0.5);
+  finalActionButton.addChild(finalActionBack, finalActionLabel);
+  finalActionButton.visible = false;
 
   const content = new Container();
-  content.addChild(backdrop, image, narrationBand, narration, continueText, holdText);
+  content.addChild(backdrop, image, narrationBand, narration, continueText, holdText, skipText, finalCredit, finalActionButton);
 
   // The ordered dither curtain becomes fully opaque before the destination is
   // swapped, so gameplay never bleeds through the final comic panel.
@@ -101,10 +144,12 @@ export function createColdOpenSequence(
   let dissolveElapsed = 0;
   let destinationActivated = false;
   let inputLockRemaining = 0;
+  let finalActionReady = false;
   let completion: (() => void) | undefined;
   let appliedPauses = new Set<number>();
 
-  const panel = () => COLD_OPEN_PANELS[panelIndex];
+  const panel = () => panels[panelIndex]!;
+  const isFinalPanel = () => panelIndex === panels.length - 1;
   const canContinue = () => typingComplete
     && introHoldElapsed >= TEXT_START_DELAY_MS
     && finalHoldElapsed >= (panel().finalHoldMs ?? 0);
@@ -122,6 +167,11 @@ export function createColdOpenSequence(
     narration.text = "";
     continueText.visible = false;
     holdText.visible = false;
+    finalCredit.visible = false;
+    finalCredit.eventMode = "none";
+    finalActionReady = false;
+    finalActionButton.visible = false;
+    finalActionButton.eventMode = "none";
     ditherFilter.setProgress(prefersReducedMotion ? 1 : 0);
     image.filters = prefersReducedMotion ? [] : [ditherFilter];
     // Ensure a stale longer page never affects the next panel's wrap bounds.
@@ -136,9 +186,30 @@ export function createColdOpenSequence(
     typingComplete = true;
     pauseRemaining = 0;
     image.alpha = 1;
-    holdText.visible = Boolean(current.finalHoldMs);
-    continueText.visible = !current.finalHoldMs;
+    const showAction = Boolean(finalAction && isFinalPanel());
+    finalActionReady = showAction;
+    holdText.visible = !showAction && Boolean(current.finalHoldMs);
+    continueText.visible = !showAction && !current.finalHoldMs;
+    finalCredit.visible = showAction && Boolean(finalAction?.credit);
+    finalCredit.eventMode = finalCredit.visible && Boolean(finalAction?.onCredit) ? "static" : "none";
+    finalActionButton.visible = showAction && Boolean(finalAction?.label);
+    finalActionButton.eventMode = finalActionButton.visible ? "static" : "none";
   };
+
+  const activateFinalAction = () => {
+    if (!finalAction || !finalActionReady) return;
+    finalActionReady = false;
+    container.visible = false;
+    container.eventMode = "none";
+    finalCredit.eventMode = "none";
+    finalActionButton.eventMode = "none";
+    finalAction.onAction();
+  };
+  finalActionButton.on("pointertap", (event) => {
+    event.stopPropagation();
+    onAdvance?.();
+    activateFinalAction();
+  });
 
   const activateDestination = () => {
     if (destinationActivated) return;
@@ -150,13 +221,15 @@ export function createColdOpenSequence(
   };
 
   const finishSequence = () => {
-    activateDestination();
     container.visible = false;
     container.eventMode = "none";
     container.alpha = 1;
     dissolving = false;
     shutter.visible = false;
     shutterMask.clear();
+    // A destination callback may synchronously navigate and destroy the Pixi
+    // scene. Finish all local cleanup before handing control to it.
+    activateDestination();
   };
 
   const advance = () => {
@@ -164,12 +237,16 @@ export function createColdOpenSequence(
     if (introHoldElapsed < TEXT_START_DELAY_MS) return;
     inputLockRemaining = INPUT_DEBOUNCE_MS;
     onAdvance?.();
+    if (finalActionReady) {
+      activateFinalAction();
+      return;
+    }
     if (!typingComplete) {
       finishTyping();
       return;
     }
     if (!canContinue()) return;
-    if (panelIndex < COLD_OPEN_PANELS.length - 1) {
+    if (panelIndex < panels.length - 1) {
       panelIndex += 1;
       resetPanel();
       return;
@@ -188,7 +265,22 @@ export function createColdOpenSequence(
   };
 
   const keydown = (event: KeyboardEvent) => {
-    if (!container.visible || !["Enter", " ", "ArrowRight"].includes(event.key)) return;
+    if (!container.visible) return;
+    if (allowSkip && event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (finalAction) {
+        panelIndex = panels.length - 1;
+        resetPanel();
+        introHoldElapsed = TEXT_START_DELAY_MS;
+        inputLockRemaining = 0;
+        finishTyping();
+        return;
+      }
+      finishSequence();
+      return;
+    }
+    if (!["Enter", " ", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     advance();
@@ -236,8 +328,10 @@ export function createColdOpenSequence(
       if (typingComplete) {
         finalHoldElapsed += deltaMs;
         const ready = canContinue();
-        continueText.visible = ready;
-        holdText.visible = !ready && Boolean(panel().finalHoldMs);
+        if (!finalActionReady) {
+          continueText.visible = ready;
+          holdText.visible = !ready && Boolean(panel().finalHoldMs);
+        }
         return;
       }
       if (pauseRemaining > 0) {

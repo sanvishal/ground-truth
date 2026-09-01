@@ -156,7 +156,8 @@ export function mountLevel1RuntimeLab(
     ]),
     group("SCENE FX", [
       button("SHAKE SCREEN", controls.triggerImpact),
-      button("COLD OPEN", controls.triggerColdOpen)
+      button("COLD OPEN", controls.triggerColdOpen),
+      button("LEVEL 1 → 2", controls.triggerLevelTransition)
     ])
   );
 

@@ -72,9 +72,7 @@ export async function registerLevel2Tools(
               ? state.ignition.runCount === 0
                 ? "The ignition sequencer is local to Demi. She must pull its starter quickly, then strike the four displayed keys as contacts reach the line. Do not change ballast drive unless Demi asks."
                 : "If Demi says the charge bar is not rising enough, explain that KORE can raise ballast drive one step at a time. Only change it when she asks. If she explicitly asks for slower notes or a wider timing window, widen the strike window; never enable that automatically after failures."
-              : state.ignition.solved && !state.plant.transferred
-                ? "Ignition is holding. KORE retained both faint three-digit console traces, but must not reveal either automatically. If Demi asks for one, offer two choices: check the log for free, or explicitly authorize a 1.5 AUX memory recall. Wait for confirmation before recalling it. Pressure, water, and ignition must align locally before transfer, and KORE cannot read pressure."
-                : "The transfer pod requires the two faint three-digit console traces. KORE retained both. If Demi asks for either value, offer the free log or a 1.5 AUX memory recall, then wait for explicit confirmation."
+              : "The transfer pod keypad is always accessible and requires the two faint three-digit console traces. KORE retained both but must not reveal either automatically. If Demi asks for one, offer two choices: check the log for free, or explicitly authorize a 1.5 AUX memory recall. Wait for confirmation before recalling it."
         };
       }
     },

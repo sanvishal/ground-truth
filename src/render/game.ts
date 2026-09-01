@@ -21,7 +21,7 @@ import { registerLevel1Tools, type ToolRegistration } from "../tools/webmcp";
 import { registerLevel2Tools } from "../tools/webmcp-level2";
 import { Level1Session } from "../runtime/level1-session";
 import { Level2Session } from "../runtime/level2-session";
-import { readLevel2Checkpoint, writeLevel2Checkpoint } from "../runtime/level2-checkpoint";
+import { clearLevel2Checkpoint, readLevel2Checkpoint, writeLevel2Checkpoint } from "../runtime/level2-checkpoint";
 import {
   clearLevel1Checkpoint,
   readDialogueTranscript,
@@ -37,6 +37,13 @@ import { SparkPixelateFilter } from "./spark-pixelate-filter";
 import { createLevel1InteractionLayer, type Level1InteractableId, type Level1InteractionLayer } from "./level1-interactions";
 import { DEMI_WAKE_LINE, KORE_OPENING_RESPONSE } from "../content/level1";
 import { COLD_OPEN_PANELS } from "../content/cold-open";
+import {
+  LEVEL_TRANSITION_PANEL_HEIGHT,
+  LEVEL_TRANSITION_PANEL_WIDTH,
+  LEVEL_TRANSITION_PANELS,
+  LEVEL_TRANSITION_SHEET
+} from "../content/level-transition";
+import { GAME_OVER_PANELS, WIN_ENDING_PANELS } from "../content/endings";
 import { createColdOpenSequence } from "./cold-open-sequence";
 import { ScreenDitherTransition } from "./screen-dither-transition";
 import { PanelApertureTransition } from "./panel-aperture-transition";
@@ -278,6 +285,7 @@ export interface GroundtruthTestControls {
   interrupt(): void;
   triggerImpact(): void;
   triggerColdOpen(): void;
+  triggerLevelTransition(): void;
   previewAnimation(): void;
   setPreset(value: DialoguePreset): void;
   setSpeed(value: number): void;
@@ -689,7 +697,7 @@ export async function createGroundtruthGame(
   };
   window.addEventListener("pointerdown", unlockSceneAudio, { once: true, capture: true });
   window.addEventListener("keydown", unlockSceneAudio, { once: true, capture: true });
-  const totalTextures = 33 + COLD_OPEN_PANELS.length;
+  const totalTextures = 38 + COLD_OPEN_PANELS.length + GAME_OVER_PANELS.length + WIN_ENDING_PANELS.length;
   let loadedTextures = 0;
   const loadTexture = async (path: string, label: string): Promise<Texture> => {
     const texture = await Assets.load<Texture>(path);
@@ -700,7 +708,7 @@ export async function createGroundtruthGame(
     });
     return texture;
   };
-  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, level2WaterHardwareTexture, level2WaterPipesTexture, level2WaterGridTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
+  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, level2WaterHardwareTexture, level2WaterPipesTexture, level2WaterGridTexture, level2IgnitionHardwareTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
     loadTexture("/assets/art/example-bridge.png", "LOADING SHIP INTERIOR"),
     loadTexture("/assets/art/demi-dialogue-spritesheet.png", "LOADING DEMI"),
     loadTexture("/assets/art/kore-dialogue-spritesheet.png", "LOADING KORE"),
@@ -725,6 +733,7 @@ export async function createGroundtruthGame(
     loadTexture("/assets/art/ui/panel-hardware/level2-water-reclamation-v1.png", "ASSEMBLING WATER RECLAMATION"),
     loadTexture("/assets/art/ui/panel-hardware/level2-water-pipes-v2.png", "FITTING RECLAMATION PIPES"),
     loadTexture("/assets/art/ui/panel-hardware/level2-water-grid-v2.png", "PLATING RECLAMATION GRID"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-ignition-hardware-v1.png", "ASSEMBLING IGNITION SEQUENCER"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-heads-v2.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-connector-states-v3.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-cables-v2.png", "LOADING BUS LOOM"),
@@ -760,6 +769,7 @@ export async function createGroundtruthGame(
   level2WaterHardwareTexture.source.scaleMode = "nearest";
   level2WaterPipesTexture.source.scaleMode = "nearest";
   level2WaterGridTexture.source.scaleMode = "nearest";
+  level2IgnitionHardwareTexture.source.scaleMode = "nearest";
   busLoomHeadsTexture.source.scaleMode = "nearest";
   busLoomConnectorStatesTexture.source.scaleMode = "nearest";
   busLoomCablesTexture.source.scaleMode = "nearest";
@@ -772,6 +782,20 @@ export async function createGroundtruthGame(
   titleLogoTexture.source.scaleMode = "nearest";
   const coldOpenTextures = await Promise.all(COLD_OPEN_PANELS.map((panel) => loadTexture(panel.image, "LOADING COLD OPEN")));
   for (const texture of coldOpenTextures) texture.source.scaleMode = "nearest";
+  const levelTransitionSheetTexture = await loadTexture(LEVEL_TRANSITION_SHEET, "MAPPING GREENHOUSE ROUTE");
+  levelTransitionSheetTexture.source.scaleMode = "nearest";
+  const levelTransitionTextures = LEVEL_TRANSITION_PANELS.map((_, index) => new Texture({
+    source: levelTransitionSheetTexture.source,
+    frame: new Rectangle(
+      0,
+      index * LEVEL_TRANSITION_PANEL_HEIGHT,
+      LEVEL_TRANSITION_PANEL_WIDTH,
+      LEVEL_TRANSITION_PANEL_HEIGHT
+    )
+  }));
+  const gameOverTextures = await Promise.all(GAME_OVER_PANELS.map((panel) => loadTexture(panel.image, "LOADING FAILURE RECORD")));
+  const winEndingTextures = await Promise.all(WIN_ENDING_PANELS.map((panel) => loadTexture(panel.image, "LOADING ESCAPE RECORD")));
+  for (const texture of [...gameOverTextures, ...winEndingTextures]) texture.source.scaleMode = "nearest";
   const level2RoomTexture = await loadTexture("/assets/art/level2/level2-greenhouse-neutral-runtime-v3.png", "RESTORING GREENHOUSE");
   const level2AlarmRoomTexture = await loadTexture("/assets/art/level2/level2-greenhouse-alarm-runtime-v1.png", "RESTORING GREENHOUSE");
   level2RoomTexture.source.scaleMode = "nearest";
@@ -845,7 +869,10 @@ export async function createGroundtruthGame(
       new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(779, 555, 240, 240) })
     ] as const,
     waterStageCollar: new Texture({ source: level2WaterHardwareTexture.source, frame: new Rectangle(791, 563, 198, 195) }),
-    waterGridTile: new Texture({ source: level2WaterGridTexture.source, frame: new Rectangle(126, 596, 302, 302) })
+    waterGridTile: new Texture({ source: level2WaterGridTexture.source, frame: new Rectangle(126, 596, 302, 302) }),
+    ignitionStarterSocket: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(225, 597, 190, 161) }),
+    ignitionStarterPlug: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(641, 568, 115, 220) }),
+    ignitionCable: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(35, 883, 1466, 49) })
   };
   const panelHardware = {
     busConnectorHeads: {
@@ -923,6 +950,7 @@ export async function createGroundtruthGame(
   const requestedScene = searchParams.get("scene");
   const isDev = searchParams.get("dev") === "1";
   const directLevel2 = searchParams.get("level") === "2";
+  const restartRequested = searchParams.get("restart") === "1";
   const useLevel2Scene = requestedScene === "level2-proof" || directLevel2;
   // Level 1 is now the real/default game scene. Keep the original dialogue
   // room available as an explicit fallback for isolated dialogue testing.
@@ -1303,6 +1331,11 @@ export async function createGroundtruthGame(
     if (events.length > 40) events.pop();
   };
 
+  let suppressCheckpointWrite = false;
+  if (restartRequested) {
+    clearLevel1Checkpoint(localStorage);
+    clearLevel2Checkpoint(localStorage);
+  }
   const restoredCheckpoint = readLevel1Checkpoint(localStorage);
   const level1 = new Level1Session(restoredCheckpoint ?? undefined);
   const restoredLevel2Checkpoint = readLevel2Checkpoint(localStorage);
@@ -1310,6 +1343,9 @@ export async function createGroundtruthGame(
   const level2 = new Level2Session(restoredLevel2Checkpoint ?? undefined);
   let level2CheckpointTimer: number | undefined;
   let triggerPuzzleShake = () => {};
+  let triggerLevelTransition = () => {};
+  let triggerGameOverEnding = () => {};
+  let triggerWinEnding = () => {};
   const hasResumableCheckpoint = Boolean(
     restoredCheckpoint?.foundation.connected
     && restoredCheckpoint.phase !== "disconnected"
@@ -1339,6 +1375,8 @@ export async function createGroundtruthGame(
       if (effect.type === "reaction") dialogue.reactDemi(effect.text, "world", performance.now(), effect.code === "DEMI_COMPLETE");
       if (effect.type === "warning") addEvent("AUX WARNING", effect.text);
     }
+    if (transition.state.reserve <= 0 || transition.state.phase === "failure") triggerGameOverEnding();
+    else if (transition.state.phase === "complete") triggerLevelTransition();
   });
   let interactionLayer: Level1InteractionLayer | undefined;
   let level2InteractionLayer: Level2InteractionLayer | undefined;
@@ -1352,7 +1390,7 @@ export async function createGroundtruthGame(
     if (level2CheckpointTimer === undefined) {
       level2CheckpointTimer = window.setTimeout(() => {
         level2CheckpointTimer = undefined;
-        writeLevel2Checkpoint(localStorage, level2.snapshot());
+        if (!suppressCheckpointWrite) writeLevel2Checkpoint(localStorage, level2.snapshot());
       }, 500);
     }
     if (reserve !== transition.state.reserve) {
@@ -1376,9 +1414,9 @@ export async function createGroundtruthGame(
         dialogue.reactDemi("These numbers appeared on the console, faintly.", "world");
         startImpactShake(performance.now());
       }
-      if (effect === "SAPLING_TRANSFERRED") dialogue.reactDemi("Easy... I've got it.", "world");
-      if (effect === "POD_OPENED") dialogue.reactDemi("The pod is open.", "world");
+      if (effect === "POD_OPENED" || effect === "DEV_POD_OPENED") triggerWinEnding();
     }
+    if (transition.state.reserve <= 0 && transition.state.phase !== "complete") triggerGameOverEnding();
   });
   if (useLevel2Scene) sceneAudio.setIgnitionHumRate(getBallastRateIndex(level2.snapshot().ignition.rate));
   if (useLevel1Scene) {
@@ -1526,11 +1564,7 @@ export async function createGroundtruthGame(
       dispatch: dispatchLevel2,
       panelOpened: () => sceneAudio.playPanelOpen(),
       panelClosed: () => sceneAudio.playPanelClose(),
-      controlStep: () => sceneAudio.playControlClunk(),
-      mistake: () => {
-        sceneAudio.playPanelError();
-        dialogue.reactDemi("The transfer pod is still sealed. I need the plant first.", "hover");
-      }
+      controlStep: () => sceneAudio.playControlClunk()
     }, isDev, {
       standard: panelStandardTexture,
       reinforced: panelReinforcedTexture,
@@ -1895,6 +1929,101 @@ export async function createGroundtruthGame(
   );
   root.addChild(coldOpen.container);
 
+  const levelTransition = createColdOpenSequence(
+    levelTransitionTextures,
+    (character) => audio.tick("KORE", character),
+    () => audio.advance(),
+    () => sceneAudio.setColdOpenAlarmActive(false),
+    LEVEL_TRANSITION_PANELS,
+    true
+  );
+  root.addChild(levelTransition.container);
+
+  const stopCheckpointWrites = () => {
+    suppressCheckpointWrite = true;
+    if (level2CheckpointTimer !== undefined) {
+      window.clearTimeout(level2CheckpointTimer);
+      level2CheckpointTimer = undefined;
+    }
+  };
+  const returnToMainMenu = () => {
+    stopCheckpointWrites();
+    clearLevel1Checkpoint(localStorage);
+    clearLevel2Checkpoint(localStorage);
+    const target = new URL(window.location.origin + window.location.pathname);
+    window.location.assign(target.toString());
+  };
+  const restartCurrentLevel = () => {
+    stopCheckpointWrites();
+    const target = new URL(window.location.origin + window.location.pathname);
+    if (useLevel2Scene) {
+      const freshLevel2 = level2.reset().state;
+      writeLevel2Checkpoint(localStorage, {
+        ...freshLevel2,
+        reserve: Math.round(freshLevel2.reserve * 0.75 * 100) / 100
+      });
+      if (isDev) {
+        target.searchParams.set("dev", "1");
+        target.searchParams.set("scene", "level2-proof");
+      } else {
+        target.searchParams.set("level", "2");
+      }
+    } else {
+      clearLevel1Checkpoint(localStorage);
+      target.searchParams.set("restart", "1");
+    }
+    window.location.assign(target.toString());
+  };
+
+  const gameOverEnding = createColdOpenSequence(
+    gameOverTextures,
+    (character) => audio.tick("KORE", character),
+    () => audio.advance(),
+    () => sceneAudio.setColdOpenAlarmActive(false),
+    GAME_OVER_PANELS,
+    true,
+    {
+      label: "RESTART LEVEL",
+      onAction: restartCurrentLevel
+    }
+  );
+  root.addChild(gameOverEnding.container);
+
+  const winEnding = createColdOpenSequence(
+    winEndingTextures,
+    (character) => audio.tick("KORE", character),
+    () => audio.advance(),
+    () => sceneAudio.setColdOpenAlarmActive(false),
+    WIN_ENDING_PANELS,
+    true,
+    {
+      credit: "A GAME BY @tk_vishal_tk",
+      onCredit: () => window.open("https://twitter.com/tk_vishal_tk", "_blank", "noopener,noreferrer"),
+      onAction: returnToMainMenu
+    }
+  );
+  root.addChild(winEnding.container);
+
+  let endingStarted = false;
+  const playEnding = (ending: typeof gameOverEnding, label: string) => {
+    if (endingStarted) return;
+    endingStarted = true;
+    startup.visible = false;
+    if (mainMenu) {
+      mainMenu.visible = false;
+      mainMenu.eventMode = "none";
+    }
+    overlay.visible = false;
+    overlay.eventMode = "none";
+    sceneAudio.setColdOpenActive(true);
+    sceneAudio.setColdOpenAlarmActive(false);
+    sceneAudio.setSceneActive(false);
+    addEvent(label);
+    ending.play();
+  };
+  triggerGameOverEnding = () => playEnding(gameOverEnding, "GAME OVER");
+  triggerWinEnding = () => playEnding(winEnding, "ESCAPE COMPLETE");
+
   const playColdOpen = (onComplete?: () => void) => {
     startup.visible = false;
     sceneAudio.setColdOpenActive(true);
@@ -1907,6 +2036,38 @@ export async function createGroundtruthGame(
       enterScene();
       addEvent("COLD OPEN COMPLETE");
       onComplete?.();
+    });
+  };
+
+  let levelTransitionStarted = false;
+  const enterGreenhouse = () => {
+    if (useLevel2Scene) {
+      enterScene();
+      levelTransitionStarted = false;
+      return;
+    }
+    const target = new URL(location.href);
+    if (isDev) {
+      target.searchParams.delete("level");
+      target.searchParams.set("scene", "level2-proof");
+    } else {
+      target.searchParams.delete("scene");
+      target.searchParams.set("level", "2");
+    }
+    location.assign(target.toString());
+  };
+  triggerLevelTransition = () => {
+    if (levelTransitionStarted) return;
+    levelTransitionStarted = true;
+    startup.visible = false;
+    sceneAudio.setColdOpenActive(true);
+    sceneAudio.setColdOpenAlarmActive(false);
+    sceneAudio.setSceneActive(false);
+    addEvent("GREENHOUSE TRANSITION STARTED");
+    levelTransition.play(() => {
+      sceneAudio.setColdOpenActive(false);
+      addEvent("GREENHOUSE TRANSITION COMPLETE");
+      enterGreenhouse();
     });
   };
 
@@ -2125,10 +2286,16 @@ export async function createGroundtruthGame(
     enterScene();
     showConnectionOverlay(!hasResumableLevel2Checkpoint, hasResumableLevel2Checkpoint);
     void registerTools();
+  } else if (restartRequested) {
+    history.replaceState({}, "", window.location.pathname);
+    menu.visible = false;
+    menu.eventMode = "none";
+    playColdOpen(beginWakeBeat);
   }
 
   const advance = () => {
-    if (mainMenu?.visible || startup.visible || overlay.visible || coldOpen.container.visible) return;
+    if (mainMenu?.visible || startup.visible || overlay.visible || coldOpen.container.visible || levelTransition.container.visible
+      || gameOverEnding.container.visible || winEnding.container.visible) return;
     const result = dialogue.advance();
     if (result !== "noop") audio.advance();
   };
@@ -2191,6 +2358,9 @@ export async function createGroundtruthGame(
     last = now;
     if (!startup.visible) dialogue.tick(delta);
     coldOpen.update(delta);
+    levelTransition.update(delta);
+    gameOverEnding.update(delta);
+    winEnding.update(delta);
     if (menu.visible) menuStarfield.update(delta);
     connectionPanelTransition.update(delta);
     if (startup.visible && webMcpAvailable && !connected) {
@@ -2274,6 +2444,7 @@ export async function createGroundtruthGame(
     interrupt: () => { audio.transmitArrival(); dialogue.receiveKore(SAMPLE_KORE_INTERRUPT); addEvent("INTERRUPTION TEST"); },
     triggerImpact: () => startImpactShake(performance.now(), true),
     triggerColdOpen: () => playColdOpen(() => addEvent("COLD OPEN PREVIEW COMPLETE")),
+    triggerLevelTransition,
     previewAnimation: () => {
       cards[activeSpeaker].portrait.preview();
       addEvent("PORTRAIT ANIMATION PREVIEW", activeSpeaker);
@@ -2315,11 +2486,14 @@ export async function createGroundtruthGame(
       tools.dispose();
       unsubscribeLevel1();
       unsubscribeLevel2();
-      writeLevel2Checkpoint(localStorage, level2.snapshot());
+      if (!suppressCheckpointWrite) writeLevel2Checkpoint(localStorage, level2.snapshot());
       interactionLayer?.destroy();
       level2InteractionLayer?.destroy();
       level2Compositor?.destroy();
       coldOpen.destroy();
+      levelTransition.destroy();
+      gameOverEnding.destroy();
+      winEnding.destroy();
       menuStarfield.destroy();
       screenTransition?.destroy();
       window.removeEventListener("pointerdown", unlockSceneAudio, true);
