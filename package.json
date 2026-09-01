@@ -1,0 +1,26 @@
+{
+  "name": "groundtruth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server-daemon.mjs start",
+    "dev:foreground": "node scripts/dev-server-supervisor.mjs",
+    "dev:restart": "node scripts/dev-server-daemon.mjs restart",
+    "dev:stop": "node scripts/dev-server-daemon.mjs stop",
+    "dev:status": "node scripts/dev-server-daemon.mjs status",
+    "dev:once": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@pixi/sound": "^6.0.1",
+    "pixi.js": "^8.20.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.7"
+  }
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GROUNDTRUTH</title>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #010306; }
+      #game-loader { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; overflow: hidden; background: #010306; color: #a9aaa3; }
+      .loader-frame { position: relative; z-index: 1; width: min(380px, 72vw); }
+      #loader-status { min-height: 20px; margin-bottom: 13px; color: #a9aaa3; font: 700 14px ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace; letter-spacing: .1em; text-align: center; }
+      .loader-track { height: 1px; background: #24292b; }
+      #loader-fill { display: block; width: 0; height: 100%; background: #e2a348; }
+    </style>
+  </head>
+  <body>
+    <main id="app-shell">
+      <section id="game-stage" aria-label="GROUNDTRUTH game stage">
+        <div id="game-loader" role="status" aria-live="polite" aria-label="Loading GROUNDTRUTH">
+          <div class="loader-stars loader-stars--far" aria-hidden="true"></div>
+          <div class="loader-stars loader-stars--near" aria-hidden="true"></div>
+          <div class="loader-frame">
+            <div id="loader-status">PREPARING SANCTUARY...</div>
+            <div class="loader-track" aria-hidden="true">
+              <span id="loader-fill"></span>
+            </div>
+          </div>
+        </div>
+        <canvas id="game" aria-label="GROUNDTRUTH game canvas"></canvas>
+      </section>
+      <aside id="dialogue-lab" hidden aria-label="Dialogue Lab"></aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

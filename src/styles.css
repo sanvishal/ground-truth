@@ -1,0 +1,466 @@
+:root {
+  color-scheme: dark;
+  background: #030506;
+  font-family: "ImpactfulBits", monospace;
+}
+
+* { box-sizing: border-box; }
+
+@font-face {
+  font-family: "ImpactfulBits";
+  src: url("/assets/fonts/ImpactfulBits.ttf") format("truetype");
+  font-display: block;
+}
+
+@font-face {
+  font-family: "PixelSans";
+  src: url("/assets/fonts/PixelSans.ttf") format("truetype");
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Notepen";
+  src: url("/assets/fonts/Notepen.ttf") format("truetype");
+  font-display: block;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: #030506;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  overflow: auto;
+}
+
+#app-shell {
+  width: min(960px, 100vw);
+  min-width: 0;
+}
+
+#game-stage,
+#game {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+#game-stage {
+  position: relative;
+  height: auto;
+  flex: 0 0 auto;
+  overflow: hidden;
+  background: #030506;
+}
+
+#game-loader {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  overflow: hidden;
+  overflow: hidden;
+  background: #010306;
+  color: #d6d2c7;
+  font-family: "ImpactfulBits", ui-monospace, monospace;
+  transition: opacity 180ms steps(4, end), visibility 0s linear 180ms;
+}
+
+.loader-stars {
+  position: absolute;
+  inset: -18%;
+  pointer-events: none;
+}
+
+.loader-stars--far {
+  opacity: 0.34;
+  background-image:
+    radial-gradient(circle, #aeb8c4 0 1px, transparent 1.4px),
+    radial-gradient(circle, #d4c8ac 0 1px, transparent 1.4px),
+    radial-gradient(circle, #758697 0 1px, transparent 1.4px);
+  background-position: 12px 24px, 71px 93px, 143px 47px;
+  background-size: 173px 137px, 223px 181px, 281px 227px;
+  animation: loader-stars-far 15s linear infinite;
+}
+
+.loader-stars--near {
+  opacity: 0.52;
+  background-image:
+    radial-gradient(circle, #f1ead9 0 1px, transparent 1.8px),
+    radial-gradient(circle, #879eb2 0 1.5px, transparent 2px);
+  background-position: 34px 11px, 126px 78px;
+  background-size: 317px 241px, 389px 293px;
+  animation: loader-stars-near 9s linear infinite;
+}
+
+#game-loader.is-complete {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.loader-frame {
+  position: relative;
+  z-index: 1;
+  width: min(380px, 72vw);
+}
+
+#loader-status {
+  min-height: 20px;
+  margin-bottom: 13px;
+  color: #a9aaa3;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+.loader-track {
+  height: 1px;
+  background: #24292b;
+}
+
+#loader-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: #e2a348;
+  box-shadow: 0 0 7px rgb(226 163 72 / 32%);
+  transition: width 120ms linear;
+}
+
+#game-loader.is-error #loader-status {
+  color: #c96b5d;
+}
+
+@keyframes loader-stars-far {
+  to { transform: translate3d(-34px, 20px, 0); }
+}
+
+@keyframes loader-stars-near {
+  to { transform: translate3d(-72px, 42px, 0); }
+}
+
+#game {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+}
+
+#dialogue-lab[hidden] { display: none; }
+
+body.dev #app-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+#dialogue-lab {
+  width: 100%;
+  min-height: 180px;
+  padding: 16px 20px 18px;
+  border-top: 1px solid #4c4c45;
+  background: #101315;
+  color: #e7dfcc;
+  font-family: "ImpactfulBits", monospace;
+  image-rendering: pixelated;
+}
+
+.lab-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 12px;
+}
+
+.lab-heading h2 {
+  margin: 0;
+  color: #e2a348;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.lab-heading p {
+  margin: 0;
+  color: #a8aaa4;
+  font-family: "PixelSans", monospace;
+  font-size: 14px;
+}
+
+.lab-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.lab-field {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.lab-field span {
+  color: #c7b98f;
+  font-size: 16px;
+}
+
+.lab-field select,
+.lab-action {
+  min-height: 36px;
+  border: 1px solid #5d5b50;
+  border-radius: 0;
+  background: #080b0d;
+  color: #e7dfcc;
+  font: 18px "ImpactfulBits", monospace;
+}
+
+.lab-field select {
+  min-width: 150px;
+  padding: 7px 32px 7px 10px;
+}
+
+.lab-action {
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.lab-field select:hover,
+.lab-field select:focus-visible,
+.lab-action:hover,
+.lab-action:focus-visible {
+  border-color: #e2a348;
+  outline: 1px solid #e2a348;
+  outline-offset: 2px;
+}
+
+.lab-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.compositor-lab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #34383a;
+}
+
+.runtime-lab {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 16px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #34383a;
+}
+
+.runtime-lab[hidden] { display: none; }
+
+.runtime-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #34383a;
+}
+
+.runtime-tabs button {
+  min-width: 104px;
+  padding: 8px 14px;
+  border: 1px solid #4c4c45;
+  border-bottom: 0;
+  background: #080b0d;
+  color: #858984;
+  font: 15px "ImpactfulBits", monospace;
+  cursor: pointer;
+}
+
+.runtime-tabs button[data-active="true"] {
+  border-color: #e2a348;
+  background: #15130e;
+  color: #e2a348;
+}
+
+.runtime-lab__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.runtime-lab h2,
+.runtime-group h3 {
+  margin: 0;
+  color: #e2a348;
+  font-weight: 400;
+}
+
+.runtime-lab h2 { font-size: 22px; }
+
+.runtime-lab p {
+  margin: 4px 0 0;
+  color: #a8aaa4;
+  font: 14px "PixelSans", monospace;
+}
+
+.runtime-state {
+  max-width: 62%;
+  color: #c7b98f;
+  font-size: 15px;
+  text-align: right;
+}
+
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runtime-group {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #34383a;
+  background: #0a0d0f;
+}
+
+.runtime-group h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.runtime-group__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.runtime-action {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid #4c4c45;
+  border-radius: 0;
+  background: #080b0d;
+  color: #d5d0c3;
+  font: 14px "ImpactfulBits", monospace;
+  cursor: pointer;
+}
+
+.runtime-action:hover,
+.runtime-action:focus-visible {
+  border-color: #e2a348;
+  color: #e2a348;
+  outline: none;
+}
+
+.runtime-action[data-tone="danger"] { color: #c96b5d; }
+.runtime-action[data-tone="quiet"] { color: #858984; }
+
+.runtime-trace {
+  min-height: 74px;
+  max-height: 150px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-left: 2px solid #5e4827;
+  background: #07090a;
+  color: #8f918c;
+  font: 13px/1.45 "PixelSans", monospace;
+}
+
+.compositor-lab__copy h2 {
+  margin: 0 0 4px;
+  color: #e2a348;
+  font-size: 22px;
+  font-weight: 400;
+}
+
+.compositor-lab__copy p {
+  max-width: 46ch;
+  margin: 0;
+  color: #a8aaa4;
+  font: 14px "PixelSans", monospace;
+}
+
+.compositor-lab__stages {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.compositor-stage {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #4c4c45;
+  border-radius: 0;
+  background: #080b0d;
+  color: #a8aaa4;
+  font: 15px "ImpactfulBits", monospace;
+  cursor: pointer;
+}
+
+.compositor-stage:hover,
+.compositor-stage:focus-visible,
+.compositor-stage[data-active="true"] {
+  border-color: #e2a348;
+  color: #e2a348;
+  outline: none;
+}
+
+.compositor-stage[data-active="true"] {
+  background: #1d1810;
+}
+
+@media (max-width: 760px) {
+  #dialogue-lab {
+    padding-inline: 12px;
+  }
+
+  .lab-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .lab-field {
+    min-width: min(180px, 100%);
+  }
+
+  .lab-samples {
+    margin-left: 0;
+  }
+
+  .compositor-lab {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .compositor-lab__stages {
+    justify-content: flex-start;
+  }
+
+  .runtime-lab__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .runtime-state {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .runtime-grid { grid-template-columns: 1fr; }
+
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
+*.tmp
+qa-*.png
+qa-*.jpg
+.dev-server.pid
