@@ -1,4 +1,4 @@
-import { BitmapText, BlurFilter, Container, Graphics, MeshRope, NineSliceSprite, Point, Rectangle, Sprite, type Texture } from "pixi.js";
+import { BitmapText, BlurFilter, Container, Graphics, MeshRope, NineSliceSprite, Point, Rectangle, Sprite, Texture } from "pixi.js";
 import { UI_FONT } from "../fonts";
 import type { Level2Action, Level2State, ThermalFeedId, ThermalSocketId, WaterSide } from "../sim/level2";
 import { BALLAST_RATES, getIgnitionContactTime, getIgnitionTimingWindow, getPressureBand, getThermalMismatchCount, getWaterConnections, THERMAL_FEED_IDS, THERMAL_PORT_IDS, TEMPERATURE_SAFE_BAND } from "../sim/level2";
@@ -23,6 +23,12 @@ export interface Level2PanelHardwareTextures {
   thermalConnected: Record<ThermalFeedId, Texture>;
   thermalLed: Record<ThermalFeedId, Texture>;
   thermalPipe: Record<ThermalFeedId, Texture>;
+  waterStraightDry: readonly [Texture, Texture, Texture, Texture];
+  waterStraightFlowing: readonly [Texture, Texture, Texture, Texture];
+  waterElbowDry: readonly [Texture, Texture, Texture, Texture];
+  waterElbowFlowing: readonly [Texture, Texture, Texture, Texture];
+  waterStageCollar: Texture;
+  waterGridTile: Texture;
 }
 const text = (value: string, size = 13, fill = 0xc9c5ba) => new BitmapText({ text: value, style: { fontFamily: UI_FONT, fontSize: size, fill } });
 const drawArrow = (graphics: Graphics, x: number, y: number, lane: number, color: number, alpha = 1) => {
@@ -393,19 +399,93 @@ export function createLevel2PuzzleOverlays(
 
   const water = shell(nameplates.waterReclamation, { x: 130, y: 18, width: 220, rotation: 0.012 }, frames.reinforced, () => close());
   const tileSize = 58; const boardX = 218; const boardY = 66;
-  const pipeViews = Array.from({ length: 16 }, (_, index) => {
-    const root = new Container(); root.position.set(boardX + (index % 4) * tileSize, boardY + Math.floor(index / 4) * tileSize);
-    root.eventMode = "static"; root.cursor = "pointer"; root.hitArea = new Rectangle(0, 0, tileSize, tileSize);
-    const art = new Graphics(); const letter = text("", 15, 0xe9dfc7); letter.anchor.set(0.5); letter.position.set(tileSize / 2, tileSize / 2);
-    root.addChild(art, letter); root.on("pointertap", () => handlers.dispatch({ type: "ROTATE_PIPE", index })); water.body.addChild(root);
-    return { root, art, letter, index };
+  const waterGridTiles = Array.from({ length: 16 }, (_, index) => {
+    const tile = new Sprite(hardware.waterGridTile);
+    tile.position.set(boardX + (index % 4) * tileSize, boardY + Math.floor(index / 4) * tileSize);
+    tile.width = tileSize; tile.height = tileSize; tile.roundPixels = true;
+    tile.alpha = 0.32;
+    water.body.addChild(tile);
+    return tile;
   });
-  const source = text("RECLAIM", 11, 0xe2a348); source.anchor.set(1, 0.5); source.position.set(boardX - 18, boardY + tileSize * 1.5);
-  const feed = text("BENCH FEED", 11, 0xe2a348); feed.position.set(boardX + tileSize * 4 + 18, boardY + tileSize * 3.5);
-  const stubs = new Graphics();
-  const flowCounter = text("---", 25, 0x72c86a); flowCounter.position.set(520, 72);
-  const waterStatus = text("NO FLOW", 11); waterStatus.anchor.set(0.5); waterStatus.position.set(334, 320);
-  water.body.addChild(stubs, source, feed, flowCounter, waterStatus);
+  const pipeViews = Array.from({ length: 16 }, (_, index) => {
+    const column = index % 4; const row = Math.floor(index / 4);
+    const root = new Container(); root.position.set(boardX + column * tileSize, boardY + row * tileSize);
+    root.eventMode = "static"; root.cursor = "pointer"; root.hitArea = new Rectangle(0, 0, tileSize, tileSize);
+    const art = new Sprite(hardware.waterStraightDry[0]);
+    art.anchor.set(0.5); art.position.set(tileSize / 2, tileSize / 2); art.roundPixels = true;
+    const pipeMask = new Graphics();
+    art.mask = pipeMask;
+    const stageCollar = new Sprite(hardware.waterStageCollar);
+    stageCollar.anchor.set(0.5); stageCollar.position.set(tileSize / 2, tileSize / 2);
+    stageCollar.scale.set(27 / hardware.waterStageCollar.width); stageCollar.roundPixels = true;
+    const letter = text("", 12, 0xe9dfc7); letter.anchor.set(0.5); letter.position.set(tileSize / 2, tileSize / 2);
+    root.addChild(art, pipeMask, stageCollar, letter); root.on("pointertap", () => handlers.dispatch({ type: "ROTATE_PIPE", index })); water.body.addChild(root);
+    return { root, art, pipeMask, stageCollar, letter, index, column, row };
+  });
+  const inlet = new Sprite(hardware.waterStraightFlowing[0]);
+  inlet.anchor.set(1, 0.5); inlet.position.set(boardX, boardY + tileSize * 1.5 + 5);
+  inlet.scale.set(tileSize / 240); inlet.roundPixels = true;
+  const outlet = new Sprite(hardware.waterStraightDry[1]);
+  outlet.anchor.set(0, 0.5); outlet.position.set(boardX + tileSize * 4, boardY + tileSize * 3.5 - 6);
+  outlet.scale.set(tileSize / 240); outlet.roundPixels = true;
+  // The source crops are optically offset inside their square frames. These
+  // are the painted pipe centerlines, not the sprite pivot positions above.
+  const inletCenterY = boardY + tileSize * 1.5;
+  const outletCenterY = boardY + tileSize * 3.5;
+  const inletMask = new Graphics()
+    .rect(boardX - tileSize, inletCenterY - 22, tileSize, 44)
+    .fill(0xffffff);
+  const outletMask = new Graphics()
+    .rect(boardX + tileSize * 4, outletCenterY - 22, tileSize, 44)
+    .fill(0xffffff);
+  inlet.mask = inletMask; outlet.mask = outletMask;
+  const terminalFramePositions = [
+    [boardX - tileSize, inletCenterY],
+    [boardX + tileSize * 5, outletCenterY]
+  ] as const;
+  const voidCanvas = document.createElement("canvas");
+  voidCanvas.width = 128; voidCanvas.height = 128;
+  const voidContext = voidCanvas.getContext("2d");
+  if (!voidContext) throw new Error("Unable to create water terminal gradient");
+  const voidGradient = voidContext.createRadialGradient(64, 64, 4, 64, 64, 62);
+  voidGradient.addColorStop(0, "rgba(0, 1, 2, 0.98)");
+  voidGradient.addColorStop(0.42, "rgba(0, 2, 3, 0.94)");
+  voidGradient.addColorStop(0.7, "rgba(2, 7, 8, 0.68)");
+  voidGradient.addColorStop(0.88, "rgba(3, 10, 11, 0.24)");
+  voidGradient.addColorStop(1, "rgba(3, 10, 11, 0)");
+  voidContext.fillStyle = voidGradient;
+  voidContext.fillRect(0, 0, 128, 128);
+  const terminalVoidTexture = Texture.from(voidCanvas);
+  const terminalVoids = terminalFramePositions.map(([x, y]) => {
+    const terminalVoid = new Sprite(terminalVoidTexture);
+    terminalVoid.anchor.set(0.5); terminalVoid.position.set(x, y);
+    terminalVoid.width = 74; terminalVoid.height = 74;
+    return terminalVoid;
+  });
+  const flowArrowShadow = new Graphics();
+  const flowArrows = new Graphics();
+  const inletArrowX = boardX - tileSize - 34;
+  const inletArrowY = inletCenterY;
+  const outletArrowX = boardX + tileSize * 5 + 34;
+  const outletArrowY = outletCenterY;
+  const drawFlowArrows = (graphics: Graphics) => graphics
+    .moveTo(inletArrowX - 8, inletArrowY)
+    .lineTo(inletArrowX + 11, inletArrowY)
+    .moveTo(inletArrowX + 11, inletArrowY)
+    .lineTo(inletArrowX + 5, inletArrowY - 5)
+    .moveTo(inletArrowX + 11, inletArrowY)
+    .lineTo(inletArrowX + 5, inletArrowY + 5)
+    .moveTo(outletArrowX - 10, outletArrowY)
+    .lineTo(outletArrowX + 9, outletArrowY)
+    .moveTo(outletArrowX + 9, outletArrowY)
+    .lineTo(outletArrowX + 3, outletArrowY - 5)
+    .moveTo(outletArrowX + 9, outletArrowY)
+    .lineTo(outletArrowX + 3, outletArrowY + 5);
+  drawFlowArrows(flowArrowShadow).stroke({ color: 0x020303, width: 3.5, alpha: 0.38 });
+  drawFlowArrows(flowArrows).stroke({ color: 0xe1b45a, width: 1.75, alpha: 0.34 });
+  // Fade the pipe mouth into the void. The gradient intentionally renders over
+  // the pipe art; unlike the former frame, it has no visible rectangular edge.
+  water.body.addChild(inlet, inletMask, outlet, outletMask, ...terminalVoids, flowArrowShadow, flowArrows);
 
   const pod = shell(nameplates.transferPod, { x: 110, y: 20, width: 185, rotation: -0.014 }, frames.sealed, () => close());
   const podDisplay = text("______", 30, 0xe2a348); podDisplay.position.set(250, 68);
@@ -519,31 +599,46 @@ export function createLevel2PuzzleOverlays(
       view.plugShadow.scale.set(scale);
     });
 
-    stubs.clear().moveTo(boardX - 16, boardY + tileSize * 1.5).lineTo(boardX, boardY + tileSize * 1.5).stroke({ color: 0xa97b42, width: 12 })
-      .moveTo(boardX + tileSize * 4, boardY + tileSize * 3.5).lineTo(boardX + tileSize * 4 + 16, boardY + tileSize * 3.5).stroke({ color: state.water.solved ? 0x5d9fbd : 0xa97b42, width: 12 });
     for (const view of pipeViews) {
       const tile = state.water.tiles[view.index]!;
       const flowing = state.water.flowingIndices.includes(view.index);
-      const pipeColor = flowing ? 0x5d9fbd : 0x9a7040;
       view.root.cursor = tile.kind === "blocked" || tile.kind === "empty" ? "default" : "pointer";
-      view.art.clear().rect(0, 0, tileSize, tileSize).fill(tile.kind === "blocked" ? 0x151313 : 0x0b0d0e).stroke({ color: 0x343b39, width: 1 });
-      if (tile.kind === "blocked") {
-        view.art.moveTo(8, 9).lineTo(48, 47).moveTo(47, 8).lineTo(12, 51).stroke({ color: 0x743b34, width: 6 });
-      } else if (tile.kind !== "empty") {
-        const connections = getWaterConnections(tile, state.water.rotations[view.index] ?? 0);
-        for (const side of connections as WaterSide[]) {
-          const cx = tileSize / 2, cy = tileSize / 2;
-          const ex = side === 1 ? tileSize : side === 3 ? 0 : cx;
-          const ey = side === 2 ? tileSize : side === 0 ? 0 : cy;
-          view.art.moveTo(cx, cy).lineTo(ex, ey).stroke({ color: pipeColor, width: tile.kind === "stage" ? 13 : 10 });
+      const shape = tile.kind === "stage" ? tile.shape : tile.kind;
+      view.art.visible = tile.kind !== "blocked" && tile.kind !== "empty";
+      view.pipeMask.clear();
+      const rotation = state.water.rotations[view.index] ?? 0;
+      const straightIndex = rotation % 2 === 0
+        ? view.row < 2 ? 0 : 1
+        : view.column < 2 ? 2 : 3;
+      const directionalIndex = shape === "straight" ? straightIndex : rotation % 4;
+      if (view.art.visible) view.art.texture = shape === "straight"
+        ? (flowing ? hardware.waterStraightFlowing : hardware.waterStraightDry)[straightIndex]!
+        : (flowing ? hardware.waterElbowFlowing : hardware.waterElbowDry)[directionalIndex]!;
+      view.art.scale.set(tileSize / 240);
+      const horizontalTop = shape === "straight" ? straightIndex === 0 : directionalIndex < 2;
+      const horizontalBottom = shape === "straight" ? straightIndex === 1 : directionalIndex >= 2;
+      const verticalLeft = shape === "straight" ? straightIndex === 2 : directionalIndex === 0 || directionalIndex === 3;
+      const verticalRight = shape === "straight" ? straightIndex === 3 : directionalIndex === 1 || directionalIndex === 2;
+      view.art.position.set(
+        tileSize / 2 + (verticalLeft ? 2.5 : verticalRight ? -2 : 0),
+        tileSize / 2 + (horizontalTop ? 5 : horizontalBottom ? -6 : 0)
+      );
+      view.art.rotation = 0;
+      if (view.art.visible) {
+        const center = tileSize / 2;
+        for (const side of getWaterConnections(tile, rotation) as WaterSide[]) {
+          const endX = side === 1 ? tileSize : side === 3 ? 0 : center;
+          const endY = side === 2 ? tileSize : side === 0 ? 0 : center;
+          view.pipeMask.moveTo(center, center).lineTo(endX, endY);
         }
-        if (tile.kind === "stage") view.art.circle(tileSize / 2, tileSize / 2, 18).fill(0x24282a).stroke({ color: pipeColor, width: 5 });
+        view.pipeMask.stroke({ color: 0xffffff, width: 40 });
+        view.pipeMask.circle(center, center, 20).fill(0xffffff);
       }
+      view.stageCollar.visible = tile.kind === "stage";
       view.letter.text = tile.stage ?? "";
     }
-    flowCounter.text = state.water.solved ? state.water.digits : "---";
-    waterStatus.text = state.water.solved ? "RECLAIM CYCLE CERTIFIED" : state.water.invalidOrder ? "FLOW ESTABLISHED. RECLAIM CYCLE NOT CERTIFIED." : state.water.connected ? "FLOW ESTABLISHED" : "NO FLOW";
-    waterStatus.tint = state.water.invalidOrder ? 0xc96b5d : 0xc9c5ba;
+    inlet.texture = hardware.waterStraightFlowing[0];
+    outlet.texture = state.water.connected ? hardware.waterStraightFlowing[1] : hardware.waterStraightDry[1];
 
     const laneStart = 92;
     const contactX = 562;
@@ -580,7 +675,7 @@ export function createLevel2PuzzleOverlays(
     ropePoints.slice(1).forEach((point) => rope.lineTo(point.x, point.y));
     rope.stroke({ color: 0xb79a66, width: 4 });
     starter.position.set(ropePoints.at(-1)!.x, ropePoints.at(-1)!.y);
-    ignitionStatus.text = state.ignition.solved ? `IGNITION HELD  ${state.ignition.digits}` : state.ignition.running ? "STRIKE THE CONTACTS" : "PULL THE EXCITER HANDLE FAST";
+    ignitionStatus.text = state.ignition.solved ? "IGNITION HELD" : state.ignition.running ? "STRIKE THE CONTACTS" : "PULL THE EXCITER HANDLE FAST";
 
     podDisplay.text = `${state.pod.input}${"_".repeat(Math.max(0, 6 - state.pod.input.length))}`;
     podStatus.text = state.pod.opened ? "POD UNSEALED" : state.plant.transferred ? "ENTER LAUNCH SEQUENCE" : "TRANSFER REQUIRED";
@@ -699,6 +794,7 @@ export function createLevel2PuzzleOverlays(
       handlers.dispatch({ type: "SET_THERMAL_PANEL", open: false });
       handlers.dispatch({ type: "SET_OVERLAY", open: false });
       container.destroy({ children: true });
+      terminalVoidTexture.destroy(true);
     }
   };
 }

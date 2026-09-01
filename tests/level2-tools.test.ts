@@ -60,4 +60,47 @@ describe("Level 2 WebMCP boundaries", () => {
     expect(session.snapshot().reserve).toBe(8.5);
     registration.dispose();
   });
+
+  it("recalls each solved console trace only after confirmation for two AUX including transmission", async () => {
+    const { active, modelContext, dialogue, session } = harness();
+    session.dispatch({ type: "DEV_SOLVE_WATER" });
+    session.dispatch({ type: "DEV_SOLVE_IGNITION" });
+    const registration = await registerLevel2Tools(modelContext, dialogue, session, {
+      onConnected() {}, onEvent() {}, onWarning() {}, onProcessing() {}
+    });
+    const waterDigits = session.snapshot().water.digits;
+    const ignitionDigits = session.snapshot().ignition.digits;
+    const reserve = session.snapshot().reserve;
+    const processing = await active.get("signal_processing")?.execute() as Record<string, unknown>;
+    expect(JSON.stringify(processing)).not.toContain(waterDigits);
+    expect(JSON.stringify(processing)).not.toContain(ignitionDigits);
+    await expect(active.get("recall_console_code")?.execute({ source: "water", confirmed: false })).rejects.toThrow(/confirm/i);
+    expect(session.snapshot().reserve).toBe(reserve);
+    const recalled = await active.get("recall_console_code")?.execute({ source: "water", confirmed: true }) as Record<string, unknown>;
+    expect(recalled.digits).toBe(waterDigits);
+    expect(session.snapshot().reserve).toBe(reserve - 1.5);
+    await active.get("transmit")?.execute({ message: `The trace was ${waterDigits}.` });
+    expect(session.snapshot().reserve).toBe(reserve - 2);
+    await active.get("signal_processing")?.execute();
+    const ignitionRecall = await active.get("recall_console_code")?.execute({ source: "ignition", confirmed: true }) as Record<string, unknown>;
+    expect(ignitionRecall.digits).toBe(ignitionDigits);
+    await active.get("transmit")?.execute({ message: `The trace was ${ignitionDigits}.` });
+    expect(session.snapshot().reserve).toBe(reserve - 4);
+    registration.dispose();
+  });
+
+  it("keeps audible transmission available when environmental drain exhausted AUX", async () => {
+    const { active, modelContext, dialogue, session } = harness();
+    session.dispatch({ type: "SPEND_RESERVE", amount: session.snapshot().reserve, reason: "test drain" });
+    const warnings: string[] = [];
+    const registration = await registerLevel2Tools(modelContext, dialogue, session, {
+      onConnected() {}, onEvent() {}, onWarning(message) { warnings.push(message); }, onProcessing() {}
+    });
+    const result = await active.get("transmit")?.execute({ message: "Relay carrier restored." }) as Record<string, unknown>;
+    expect(result.delivered).toBe(true);
+    expect(result.emergencyCarrier).toBe(true);
+    expect(session.snapshot().reserve).toBe(0);
+    expect(warnings.join(" ")).toMatch(/emergency relay/i);
+    registration.dispose();
+  });
 });

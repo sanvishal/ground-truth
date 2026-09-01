@@ -13,9 +13,9 @@ interface Hooks {
   onProcessing(active: boolean): void;
 }
 
-type ToolKey = "connect" | "signal_processing" | "transmit" | "self_report" | "read_manual" | "listen" | "set_ballast_drive" | "widen_strike_window";
+type ToolKey = "connect" | "signal_processing" | "transmit" | "self_report" | "read_manual" | "listen" | "recall_console_code" | "set_ballast_drive" | "widen_strike_window";
 
-const COST = { transmit: 0.5, selfReport: 1, manual: 1, listen: 1 } as const;
+const COST = { transmit: 0.5, selfReport: 1, manual: 1, listen: 1, recall: 1.5 } as const;
 
 export async function registerLevel2Tools(
   modelContext: ModelContext | undefined,
@@ -31,11 +31,16 @@ export async function registerLevel2Tools(
   let metered = false;
   let transmitted = false;
 
-  const spend = (amount: number, reason: string) => {
+  const spend = (amount: number, reason: string): number => {
     if (metered && reason !== "transmit") throw new Error("Only one metered sensing or manual action is allowed per player message.");
+    if (reason === "transmit" && session.snapshot().reserve < amount) {
+      hooks.onWarning("AUX reserve depleted. Emergency relay carrier used for speech.");
+      return 0;
+    }
     const transition = session.dispatch({ type: "SPEND_RESERVE", amount, reason });
     if (!transition.ok) throw new Error(transition.error);
     if (reason !== "transmit") metered = true;
+    return amount;
   };
   const specs = (): Record<ToolKey, ModelContextTool> => ({
     connect: {
@@ -68,8 +73,8 @@ export async function registerLevel2Tools(
                 ? "The ignition sequencer is local to Demi. She must pull its starter quickly, then strike the four displayed keys as contacts reach the line. Do not change ballast drive unless Demi asks."
                 : "If Demi says the charge bar is not rising enough, explain that KORE can raise ballast drive one step at a time. Only change it when she asks. If she explicitly asks for slower notes or a wider timing window, widen the strike window; never enable that automatically after failures."
               : state.ignition.solved && !state.plant.transferred
-                ? `Ignition is holding and the sequencer shows a repeating pattern: ${state.ignition.digits}. Relay the pattern without suggesting its purpose. Pressure, water, and ignition must align locally before transfer, and KORE cannot read pressure.`
-                : "The transfer pod requires the two three-digit values Demi observed locally. They are not available to KORE."
+                ? "Ignition is holding. KORE retained both faint three-digit console traces, but must not reveal either automatically. If Demi asks for one, offer two choices: check the log for free, or explicitly authorize a 1.5 AUX memory recall. Wait for confirmation before recalling it. Pressure, water, and ignition must align locally before transfer, and KORE cannot read pressure."
+                : "The transfer pod requires the two faint three-digit console traces. KORE retained both. If Demi asks for either value, offer the free log or a 1.5 AUX memory recall, then wait for explicit confirmation."
         };
       }
     },
@@ -86,14 +91,14 @@ export async function registerLevel2Tools(
         if (transmitted) throw new Error("One audible reply has already been transmitted for this player message.");
         const message = typeof args.message === "string" ? args.message.trim() : "";
         if (!message) throw new TypeError("transmit.message must not be empty");
-        spend(COST.transmit, "transmit");
+        const auxCost = spend(COST.transmit, "transmit");
         const heard = typeof args.heard_message === "string" ? args.heard_message.trim() : "";
         if (heard) dialogue.echoDemi(heard, performance.now(), "transmit");
         dialogue.receiveKore(message, performance.now(), "transmit");
         transmitted = true;
         hooks.onProcessing(false);
         hooks.onEvent("KORE TRANSMITTED", `${message.length} characters`);
-        return { delivered: true, audible: true, auxCost: COST.transmit };
+        return { delivered: true, audible: true, auxCost, emergencyCarrier: auxCost === 0 };
       }
     },
     self_report: {
@@ -143,6 +148,35 @@ export async function registerLevel2Tools(
         };
       }
     },
+    recall_console_code: {
+      name: "recall_console_code",
+      description: "Recall one faint three-digit console trace from KORE's retained memory. First offer Demi the free log or a 1.5 AUX recall, then wait. Call this only after Demi explicitly confirms the spend. The subsequent audible transmit costs another 0.5 AUX, for 2 AUX total. Never reveal either code through signal_processing, commentary, or an unconfirmed call.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          source: { type: "string", enum: ["water", "ignition"] },
+          confirmed: { type: "boolean", enum: [true] }
+        },
+        required: ["source", "confirmed"],
+        additionalProperties: false
+      },
+      async execute(args = {}) {
+        if (args.confirmed !== true) throw new Error("Demi must explicitly confirm the 1.5 AUX memory recall first.");
+        const source = args.source;
+        if (source !== "water" && source !== "ignition") throw new TypeError("Unknown console trace source.");
+        const state = session.snapshot();
+        if (!state[source].solved) throw new Error(`The ${source} console trace has not appeared yet.`);
+        if (state.reserve < COST.recall + COST.transmit) throw new Error("Two AUX are required to recall and audibly transmit this trace.");
+        const auxCost = spend(COST.recall, `${source} console recall`);
+        hooks.onEvent("KORE MEMORY RECALL", `${source.toUpperCase()} TRACE`);
+        return {
+          source,
+          digits: state[source].digits,
+          auxCost,
+          nextAction: "Call transmit now to tell Demi these three digits. Do not include the other trace."
+        };
+      }
+    },
     set_ballast_drive: {
       name: "set_ballast_drive",
       description: "Change ignition cadence only after Demi asks. Raising drive is limited to one step per call and costs 1 AUX. Lowering it is immediate and free.",
@@ -185,7 +219,7 @@ export async function registerLevel2Tools(
   const sync = async () => {
     if (disposed) return;
     const wanted = new Set<ToolKey>(connected
-      ? ["signal_processing", "transmit", "self_report", "read_manual", "listen", "set_ballast_drive", "widen_strike_window"]
+      ? ["signal_processing", "transmit", "self_report", "read_manual", "listen", "recall_console_code", "set_ballast_drive", "widen_strike_window"]
       : ["connect"]);
     for (const [key, controller] of controllers) {
       if (wanted.has(key)) continue;

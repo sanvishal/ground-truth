@@ -700,7 +700,7 @@ export async function createGroundtruthGame(
     });
     return texture;
   };
-  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
+  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, level2WaterHardwareTexture, level2WaterPipesTexture, level2WaterGridTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
     loadTexture("/assets/art/example-bridge.png", "LOADING SHIP INTERIOR"),
     loadTexture("/assets/art/demi-dialogue-spritesheet.png", "LOADING DEMI"),
     loadTexture("/assets/art/kore-dialogue-spritesheet.png", "LOADING KORE"),
@@ -722,6 +722,9 @@ export async function createGroundtruthGame(
     loadTexture("/assets/art/ui/panel-hardware/level2-pressure-wheel-v2.png", "ASSEMBLING PRESSURE CONTROL"),
     loadTexture("/assets/art/ui/panel-hardware/level2-thermal-hardware-v1.png", "ASSEMBLING THERMAL COUPLING"),
     loadTexture("/assets/art/ui/panel-hardware/level2-thermal-pipes-v1.png", "ROUTING THERMAL LINES"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-water-reclamation-v1.png", "ASSEMBLING WATER RECLAMATION"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-water-pipes-v2.png", "FITTING RECLAMATION PIPES"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-water-grid-v2.png", "PLATING RECLAMATION GRID"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-heads-v2.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-connector-states-v3.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-cables-v2.png", "LOADING BUS LOOM"),
@@ -754,6 +757,9 @@ export async function createGroundtruthGame(
   level2PressureWheelTexture.source.scaleMode = "nearest";
   level2ThermalHardwareTexture.source.scaleMode = "nearest";
   level2ThermalPipesTexture.source.scaleMode = "nearest";
+  level2WaterHardwareTexture.source.scaleMode = "nearest";
+  level2WaterPipesTexture.source.scaleMode = "nearest";
+  level2WaterGridTexture.source.scaleMode = "nearest";
   busLoomHeadsTexture.source.scaleMode = "nearest";
   busLoomConnectorStatesTexture.source.scaleMode = "nearest";
   busLoomCablesTexture.source.scaleMode = "nearest";
@@ -810,7 +816,36 @@ export async function createGroundtruthGame(
       blue: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 606, 1411, 58) }),
       green: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 702, 1411, 54) }),
       amber: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 791, 1412, 59) })
-    }
+    },
+    // Use the sheet's native direction-specific pieces. Rotating a single
+    // generated crop exposed its uneven internal centreline at every seam.
+    waterStraightDry: [
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(264, 30, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(264, 555, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(9, 291, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(520, 291, 240, 240) })
+    ] as const,
+    waterStraightFlowing: [
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(1034, 30, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(1034, 555, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(779, 291, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(1290, 291, 240, 240) })
+    ] as const,
+    // Rotation order: right/down, down/left, left/up, up/right.
+    waterElbowDry: [
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(9, 30, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(520, 30, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(520, 555, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(9, 555, 240, 240) })
+    ] as const,
+    waterElbowFlowing: [
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(779, 30, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(1290, 30, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(1290, 555, 240, 240) }),
+      new Texture({ source: level2WaterPipesTexture.source, frame: new Rectangle(779, 555, 240, 240) })
+    ] as const,
+    waterStageCollar: new Texture({ source: level2WaterHardwareTexture.source, frame: new Rectangle(791, 563, 198, 195) }),
+    waterGridTile: new Texture({ source: level2WaterGridTexture.source, frame: new Rectangle(126, 596, 302, 302) })
   };
   const panelHardware = {
     busConnectorHeads: {
@@ -1327,14 +1362,18 @@ export async function createGroundtruthGame(
     if (useLevel2Scene) sceneAudio.setIgnitionHumRate(getBallastRateIndex(transition.state.ignition.rate));
     for (const effect of transition.effects) {
       addEvent(effect.replaceAll("_", " "));
-      if (effect === "WATER_FLOWING") dialogue.reactDemi("The pump caught. Three digits just lit on the flow counter.", "world");
+      if (effect === "WATER_FLOWING") {
+        addEvent("FAINT WATER CONSOLE TRACE", transition.state.water.digits);
+        dialogue.reactDemi("These numbers appeared on the console, faintly.", "world");
+      }
       if (effect === "THERMAL_PORTS_REMAPPED_FIRST") dialogue.reactDemi("The coupling indicators just reassigned themselves. The cables stayed put.", "world");
       if ((effect === "THERMAL_PORTS_REMAPPED" || effect === "THERMAL_PORTS_REMAPPED_FIRST") && transition.state.thermal.panelOpen) sceneAudio.playControlClunk();
       if (effect === "THERMAL_PLUG_SEATED") sceneAudio.playControlClunk();
       if (effect === "IGNITION_STARTED" || effect === "IGNITION_HIT" || effect === "BALLAST_RATE_CHANGED") sceneAudio.playControlClunk();
       if (effect === "IGNITION_MISS") sceneAudio.playPanelError();
       if (effect === "IGNITION_COMPLETE") {
-        dialogue.reactDemi("It caught... the grow lights are holding. Three more digits.", "world");
+        addEvent("FAINT IGNITION CONSOLE TRACE", transition.state.ignition.digits);
+        dialogue.reactDemi("These numbers appeared on the console, faintly.", "world");
         startImpactShake(performance.now());
       }
       if (effect === "SAPLING_TRANSFERRED") dialogue.reactDemi("Easy... I've got it.", "world");
@@ -1749,7 +1788,7 @@ export async function createGroundtruthGame(
   stateText.position.set(W / 2, 294);
   let copyStatusTimeout: number | undefined;
   const connectionUrl = directLevel2 ? `${window.location.origin}${window.location.pathname}?level=2` : window.location.href;
-  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Use at most one metered diagnostic, sensing, or manual tool per player message. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
+  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Never substitute a private KORE response for transmit. Use at most one metered diagnostic, sensing, manual, or memory-recall tool per player message. KORE retains the faint water and ignition console traces. If I ask for one, offer me the free log or a 1.5 AUX memory recall and wait for explicit confirmation. After confirmation, recall only that trace, then transmit its three digits; recall plus transmission costs 2 AUX total. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
   const writeConnectionPrompt = () => navigator.clipboard.writeText(connectionPrompt);
   const copyPrompt = () => {
     void writeConnectionPrompt().then(() => {
