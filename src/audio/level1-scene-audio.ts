@@ -159,6 +159,7 @@ export class Level1SceneAudio {
       this.ignitionHumContext = new AudioContextClass();
       this.ignitionHumOscillator = this.ignitionHumContext.createOscillator();
       this.ignitionHumGain = this.ignitionHumContext.createGain();
+      this.ignitionHumGain.gain.setValueAtTime(0, this.ignitionHumContext.currentTime);
       this.ignitionHumOscillator.type = "sawtooth";
       this.ignitionHumOscillator.connect(this.ignitionHumGain);
       this.ignitionHumGain.connect(this.ignitionHumContext.destination);

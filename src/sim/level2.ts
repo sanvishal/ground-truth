@@ -11,10 +11,8 @@ export const IGNITION_PATTERN_LENGTH = 16;
 export const IGNITION_STRIKE_THRESHOLD = 100;
 export const IGNITION_TIMING_WINDOW_MS = 190;
 export const IGNITION_ASSIST_WINDOW_MS = 280;
-const PRESSURE_DRIFT_MIN = 0.10;
-const PRESSURE_DRIFT_RANGE = 0.08;
-const PRESSURE_BAND_SHIFT_MIN_MS = 60_000;
-const PRESSURE_BAND_SHIFT_RANGE_MS = 30_000;
+const PRESSURE_DRIFT_MIN = 0.165;
+const PRESSURE_DRIFT_RANGE = 0.11;
 export const IGNITION_RATE_SPACING_MS: Readonly<Record<BallastRate, number>> = {
   nominal: 1_100, elevated: 820, high: 620, maximum: 470
 };
@@ -190,7 +188,7 @@ function makeWaterTiles(random: () => number) {
   return { tiles, requiredOrder: [stageLetters[0]!, stageLetters[1]!] as Level2State["water"]["requiredOrder"] };
 }
 
-function makePressureCycle(seed: number, cycle: number, startsAtMs: number): Level2PressureControl {
+function makePressureCycle(seed: number, cycle: number): Level2PressureControl {
   const random = seededRandom((seed ^ Math.imul(cycle + 1, 0x9e3779b1)) >>> 0);
   const width = 24 + random() * 14;
   const center = 20 + width / 2 + random() * (60 - width);
@@ -200,27 +198,20 @@ function makePressureCycle(seed: number, cycle: number, startsAtMs: number): Lev
     band: { min: center - width / 2, max: center + width / 2 },
     drift: direction * (PRESSURE_DRIFT_MIN + random() * PRESSURE_DRIFT_RANGE),
     cycle,
-    nextShiftMs: startsAtMs + PRESSURE_BAND_SHIFT_MIN_MS + random() * PRESSURE_BAND_SHIFT_RANGE_MS
+    nextShiftMs: Number.MAX_SAFE_INTEGER
   };
 }
 
 function advancePressure(state: Level2State, deltaMs: number): { pressure: number; pressureControl: Level2PressureControl } {
-  let pressure = state.pressure;
-  let control = state.pressureControl;
-  let cursor = state.elapsedMs;
-  let remaining = Math.max(0, deltaMs);
-  while (remaining > 0) {
-    const untilShift = Math.max(0, control.nextShiftMs - cursor);
-    const segment = Math.min(remaining, untilShift || remaining);
-    pressure = clamp(pressure + segment / 1000 * control.drift);
-    cursor += segment;
-    remaining -= segment;
-    if (cursor >= control.nextShiftMs) control = makePressureCycle(state.seed, control.cycle + 1, control.nextShiftMs);
-  }
-  return { pressure, pressureControl: control };
+  const control = state.pressureControl;
+  const bandCenter = (control.band.min + control.band.max) / 2;
+  const direction = state.pressure < bandCenter ? -1 : state.pressure > bandCenter ? 1 : Math.sign(control.drift) || 1;
+  const drift = direction * Math.abs(control.drift);
+  const pressure = clamp(state.pressure + Math.max(0, deltaMs) / 1000 * drift);
+  return { pressure, pressureControl: { ...control, drift } };
 }
 
-const nextThermalSwapDelay = (_seed: number, _cycle: number) => 60_000;
+const nextThermalSwapDelay = (_seed: number, cycle: number) => cycle === 0 ? 120_000 : 60_000;
 
 function remapThermalPorts(state: Level2State, thermal: Level2ThermalControl): Level2ThermalControl {
   const random = seededRandom((state.seed ^ Math.imul(thermal.cycle + 31, 0x9e3779b1)) >>> 0);
@@ -248,7 +239,7 @@ function advanceThermal(state: Level2State, deltaMs: number): { thermal: Level2T
       return clamp(100 + (temperature - 100) * Math.exp(-0.052 * durationMs / 1000));
     }
     const target = 22;
-    const slowResponse = 0.03;
+    const slowResponse = 0.20;
     if (temperature <= TEMPERATURE_SAFE_BAND.max) {
       return clamp(target + (temperature - target) * Math.exp(-slowResponse * durationMs / 1000));
     }
@@ -331,7 +322,7 @@ export function createInitialLevel2State(seed = 0x47543232): Level2State {
   const random = seededRandom(seed);
   const waterBoard = makeWaterTiles(random);
   const rotations = waterBoard.tiles.map((tile, index) => tile.kind === "blocked" || tile.kind === "empty" ? 0 : (WATER_CLEAN_SOLUTION[index]! + 1 + Math.floor(random() * 3)) % 4);
-  const pressureControl = makePressureCycle(seed, 0, 0);
+  const pressureControl = makePressureCycle(seed, 0);
   const portAssignments = shuffle(THERMAL_FEED_IDS, random) as Level2ThermalControl["portAssignments"];
   const thermal: Level2ThermalControl = {
     panelOpen: false,

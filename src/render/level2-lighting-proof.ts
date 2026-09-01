@@ -118,12 +118,15 @@ export function createLevel2LightingProof(
   const room = new Sprite(roomTexture);
   room.width = SCENE_WIDTH;
   room.height = SCENE_HEIGHT;
-  room.roundPixels = true;
+  // The room and its lighting filter must share the same continuous transform.
+  // Snapping only the room sprite to output pixels shifts the authored lamp
+  // fixture beneath the filter whenever the responsive canvas scale changes.
+  room.roundPixels = false;
   const lighting = new TubeLightFilter(SCENE_WIDTH, SCENE_HEIGHT);
   const growLight: TubeLightSettings = {
     id: "level2-grow-array",
     label: "GROW ARRAY",
-    x: 358,
+    x: 406,
     y: 32,
     length: 126,
     reach: 650,

@@ -3,6 +3,7 @@ import type { DialogueOrigin, Speaker } from "../dialogue/types";
 
 export const LEVEL1_CHECKPOINT_KEY = "groundtruth.level1.checkpoint.v1";
 export const LEVEL1_DIALOGUE_CHECKPOINT_KEY = "groundtruth.level1.dialogue.v1";
+export const LEVEL1_TRANSCRIPT_CHECKPOINT_KEY = "groundtruth.level1.transcript.v1";
 
 type CheckpointStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -22,6 +23,35 @@ export interface DialogueCheckpoint {
 interface StoredDialogueCheckpoint extends DialogueCheckpoint {
   version: 1;
   savedAt: number;
+}
+
+export interface DialogueTranscriptEntry {
+  speaker: Speaker;
+  body: string;
+}
+
+export function readDialogueTranscript(storage: CheckpointStorage): DialogueTranscriptEntry[] {
+  try {
+    const raw = storage.getItem(LEVEL1_TRANSCRIPT_CHECKPOINT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { version?: number; entries?: DialogueTranscriptEntry[] };
+    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return [];
+    return parsed.entries.filter((entry) =>
+      (entry.speaker === "KORE" || entry.speaker === "DEMI")
+      && typeof entry.body === "string"
+      && entry.body.length > 0
+    ).slice(-80);
+  } catch {
+    return [];
+  }
+}
+
+export function writeDialogueTranscript(storage: CheckpointStorage, entries: DialogueTranscriptEntry[]): void {
+  try {
+    storage.setItem(LEVEL1_TRANSCRIPT_CHECKPOINT_KEY, JSON.stringify({ version: 1, savedAt: Date.now(), entries: entries.slice(-80) }));
+  } catch {
+    // Transcript persistence is a convenience and must never interrupt play.
+  }
 }
 
 export function readDialogueCheckpoint(storage: CheckpointStorage): DialogueCheckpoint | null {
@@ -139,6 +169,7 @@ export function clearLevel1Checkpoint(storage: CheckpointStorage): void {
   try {
     storage.removeItem(LEVEL1_CHECKPOINT_KEY);
     storage.removeItem(LEVEL1_DIALOGUE_CHECKPOINT_KEY);
+    storage.removeItem(LEVEL1_TRANSCRIPT_CHECKPOINT_KEY);
   } catch {
     // The reset still succeeds in memory when storage is unavailable.
   }

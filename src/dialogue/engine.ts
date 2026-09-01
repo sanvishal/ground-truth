@@ -193,7 +193,9 @@ export class DialogueEngine {
   reactDemi(body: string, source: ReactionSource, now = performance.now(), autoAdvance = false): void {
     const kore = this.channels.KORE.current;
     const koreBusy = this.activeSpeaker === "KORE" && Boolean(kore && !kore.fullyRead);
-    if (!koreBusy) {
+    // Physical actions are immediate interruptions. Hover reactions remain
+    // deferable so moving the pointer cannot constantly steal the dialogue.
+    if (!koreBusy || source !== "hover") {
       this.activateReaction({ body, source, createdAt: now, autoAdvance }, now);
       return;
     }
@@ -228,7 +230,13 @@ export class DialogueEngine {
     }
   }
 
-  private activateAfterComplete(now: number): boolean {
+  private activateAfterComplete(now: number, allowSpeakerChange = true): boolean {
+    const queue = this.channels[this.activeSpeaker].queue;
+    if (queue.length) {
+      this.activate(queue.shift()!);
+      return true;
+    }
+    if (!allowSpeakerChange) return false;
     if (this.pendingKore.length) {
       this.activate(this.pendingKore.shift()!);
       return true;
@@ -237,11 +245,6 @@ export class DialogueEngine {
     if (this.pendingReactions.length) {
       const reaction = this.pendingReactions.shift()!;
       this.activateReaction(reaction, now);
-      return true;
-    }
-    const queue = this.channels[this.activeSpeaker].queue;
-    if (queue.length) {
-      this.activate(queue.shift()!);
       return true;
     }
     return false;
@@ -265,7 +268,7 @@ export class DialogueEngine {
         }
         return "next-message";
       }
-      if (this.activateAfterComplete(now)) return "next-message";
+      if (this.activateAfterComplete(now, false)) return "next-message";
       if (message.pages.length > 1) {
         this.showReadPage(message, (message.pageIndex + 1) % message.pages.length);
         this.emit();
@@ -278,7 +281,7 @@ export class DialogueEngine {
       this.emit();
       return "next-page";
     }
-    return this.activateAfterComplete(now) ? "next-message" : "noop";
+    return this.activateAfterComplete(now, false) ? "next-message" : "noop";
   }
 
   clickPortrait(speaker: Speaker): boolean {

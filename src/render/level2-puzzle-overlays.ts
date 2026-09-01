@@ -1,9 +1,10 @@
-import { BitmapText, Container, Graphics, Rectangle } from "pixi.js";
+import { BitmapText, BlurFilter, Container, Graphics, MeshRope, NineSliceSprite, Point, Rectangle, Sprite, type Texture } from "pixi.js";
 import { UI_FONT } from "../fonts";
 import type { Level2Action, Level2State, ThermalFeedId, ThermalSocketId, WaterSide } from "../sim/level2";
 import { BALLAST_RATES, getIgnitionContactTime, getIgnitionTimingWindow, getPressureBand, getThermalMismatchCount, getWaterConnections, THERMAL_FEED_IDS, THERMAL_PORT_IDS, TEMPERATURE_SAFE_BAND } from "../sim/level2";
 import { PanelApertureTransition } from "./panel-aperture-transition";
-import { createInteractionCue, createPanelSurface, type PanelFrameTextures } from "./panel-nine-slice";
+import { createHardwareSprite, createInteractionCue, createPanelNameplate, createPanelSurface, type PanelFrameTextures, type PanelNameplateTextures } from "./panel-nine-slice";
+import { panelText } from "./panel-text";
 
 export type Level2PuzzleId = "pressure" | "vents" | "water" | "ignition" | "pod";
 export interface Level2PuzzleHandlers {
@@ -14,14 +15,16 @@ export interface Level2PuzzleOverlays {
   readonly container: Container; open(id: Level2PuzzleId): void; refresh(): void;
   update(deltaMs: number): void; destroy(): void;
 }
+export interface Level2PanelHardwareTextures {
+  pressureCrt: Texture;
+  pressureWheel: Texture;
+  thermalSocket: Texture;
+  thermalDisconnected: Record<ThermalFeedId, Texture>;
+  thermalConnected: Record<ThermalFeedId, Texture>;
+  thermalLed: Record<ThermalFeedId, Texture>;
+  thermalPipe: Record<ThermalFeedId, Texture>;
+}
 const text = (value: string, size = 13, fill = 0xc9c5ba) => new BitmapText({ text: value, style: { fontFamily: UI_FONT, fontSize: size, fill } });
-const THERMAL_COLORS: Record<ThermalFeedId, number> = { red: 0xc65448, blue: 0x4d82bc, green: 0x6dbb68, amber: 0xe2a348 };
-const drawThermalShape = (graphics: Graphics, x: number, y: number, feed: ThermalFeedId, size: number, color: number, alpha = 1) => {
-  if (feed === "red") graphics.circle(x, y, size).fill({ color, alpha });
-  else if (feed === "blue") graphics.rect(x - size, y - size, size * 2, size * 2).fill({ color, alpha });
-  else if (feed === "green") graphics.poly([x, y - size - 2, x + size + 1, y + size, x - size - 1, y + size]).fill({ color, alpha });
-  else graphics.poly([x - size, y, x - size / 2, y - size, x + size / 2, y - size, x + size, y, x + size / 2, y + size, x - size / 2, y + size]).fill({ color, alpha });
-};
 const drawArrow = (graphics: Graphics, x: number, y: number, lane: number, color: number, alpha = 1) => {
   const angle = [Math.PI, -Math.PI / 2, Math.PI / 2, 0][lane] ?? 0;
   const cos = Math.cos(angle); const sin = Math.sin(angle);
@@ -30,23 +33,33 @@ const drawArrow = (graphics: Graphics, x: number, y: number, lane: number, color
   graphics.poly(points).fill({ color, alpha });
 };
 
-function shell(title: string, frame: PanelFrameTextures[keyof PanelFrameTextures], close: () => void) {
+function shell(
+  nameplateTexture: PanelNameplateTextures[keyof PanelNameplateTextures],
+  placement: { x: number; y: number; width: number; rotation: number },
+  frame: PanelFrameTextures[keyof PanelFrameTextures],
+  close: () => void
+) {
   const root = new Container(); root.visible = false; root.eventMode = "none";
   const shade = new Graphics().rect(0, 0, 960, 420).fill({ color: 0x020304, alpha: 0.84 });
   shade.eventMode = "static"; shade.cursor = "pointer"; shade.on("pointertap", close);
   const body = new Container(); body.position.set(146, 32); body.eventMode = "static";
   body.hitArea = new Rectangle(0, 0, 668, 352); body.on("pointertap", (event) => event.stopPropagation());
   body.addChild(createPanelSurface(frame, 668, 352));
-  const heading = text(title, 20, 0xe2a348); heading.position.set(28, 22);
+  const heading = createPanelNameplate(nameplateTexture, placement.x, placement.y, placement.width, placement.rotation);
   const closeButton = new Container(); closeButton.position.set(616, 13); closeButton.eventMode = "static"; closeButton.cursor = "pointer";
   closeButton.hitArea = new Rectangle(0, 0, 30, 30);
-  const closeGlyph = text("X", 15, 0xe2a348); closeGlyph.anchor.set(0.5); closeGlyph.position.set(15, 15);
+  const closeGlyph = panelText("X", 15, 0xe2a348); closeGlyph.anchor.set(0.5); closeGlyph.position.set(15, 15);
   closeButton.addChild(closeGlyph); closeButton.on("pointertap", close);
   body.addChild(heading, closeButton); root.addChild(shade, body);
   return { root, body };
 }
 
-export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frames: PanelFrameTextures): Level2PuzzleOverlays {
+export function createLevel2PuzzleOverlays(
+  handlers: Level2PuzzleHandlers,
+  frames: PanelFrameTextures,
+  nameplates: PanelNameplateTextures,
+  hardware: Level2PanelHardwareTextures
+): Level2PuzzleOverlays {
   const container = new Container(); container.zIndex = 2_100_000;
   let active: Level2PuzzleId | null = null;
   let activeTransition: PanelApertureTransition | null = null;
@@ -64,14 +77,89 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
     if (sound) handlers.panelClosed();
   };
 
-  const pressure = shell("PRESSURE CONTROL", frames.reinforced, () => close());
-  const pressureWheel = new Container(); pressureWheel.position.set(218, 190);
-  pressureWheel.eventMode = "static"; pressureWheel.cursor = "grab"; pressureWheel.hitArea = new Rectangle(-96, -96, 192, 192);
-  const pressureWheelArt = new Graphics();
+  const pressure = shell(nameplates.pressureControl, { x: 140, y: 45, width: 190, rotation: -0.012 }, frames.reinforced, () => close());
+  const pressureWheel = new Container(); pressureWheel.position.set(250, 185);
+  pressureWheel.eventMode = "static"; pressureWheel.cursor = "grab"; pressureWheel.hitArea = new Rectangle(-112, -112, 224, 224);
+  // The shadow must not rotate off-axis with the wheel. The panel surface
+  // already provides enough separation behind this large control.
+  const pressureWheelArt = createHardwareSprite(hardware.pressureWheel, 224, 0, 0, 0);
+  // The painted rim is optically above the source canvas midpoint. Align its
+  // center with the interaction pivot so the wheel does not orbit while turning.
+  pressureWheelArt.position.y = 5.5;
+  // Pixel rounding is useful for stationary hardware, but makes a rotating
+  // sprite jump between adjacent pixels as its transform changes.
+  for (const child of pressureWheelArt.children) {
+    if (child instanceof Sprite) child.roundPixels = false;
+  }
+  const pressureScope = { x: 436, y: 75, width: 104, height: 222 } as const;
+  const pressureScopeCenterX = pressureScope.x + pressureScope.width / 2;
+  const pressureScreenGlow = new Graphics()
+    .roundRect(pressureScope.x - 2, pressureScope.y - 2, pressureScope.width + 4, pressureScope.height + 4, 7)
+    .stroke({ color: 0x4f9a83, width: 4, alpha: 0.28 });
+  pressureScreenGlow.blendMode = "add";
+  pressureScreenGlow.filters = [new BlurFilter({ strength: 6, quality: 1 })];
+  const pressureScreen = new Graphics()
+    .roundRect(pressureScope.x, pressureScope.y, pressureScope.width, pressureScope.height, 5)
+    .fill(0x0a1714);
+  const pressureGuide = new Graphics()
+    .moveTo(pressureScopeCenterX, pressureScope.y + 7)
+    .lineTo(pressureScopeCenterX, pressureScope.y + pressureScope.height - 7)
+    .stroke({ color: 0xc34e43, width: 2, alpha: 0.82 });
+  const pressureScaleGlow = new Graphics();
+  const pressureScale = new Graphics();
+  for (let tick = 0; tick <= 10; tick += 1) {
+    const tickY = pressureScope.y + 8 + (pressureScope.height - 16) * tick / 10;
+    const halfWidth = tick % 5 === 0 ? 15 : tick % 2 === 0 ? 10 : 7;
+    pressureScale
+      .moveTo(pressureScopeCenterX - halfWidth, tickY)
+      .lineTo(pressureScopeCenterX + halfWidth, tickY);
+    pressureScaleGlow
+      .moveTo(pressureScopeCenterX - halfWidth - 1, tickY)
+      .lineTo(pressureScopeCenterX + halfWidth + 1, tickY);
+  }
+  pressureScale.stroke({ color: 0xcf5a4c, width: 1, alpha: 0.8 });
+  pressureScaleGlow.stroke({ color: 0xc34e43, width: 3, alpha: 0.18 });
+  pressureScaleGlow.blendMode = "add";
+  pressureScaleGlow.filters = [new BlurFilter({ strength: 3, quality: 1 })];
+  const pressureGaugeGlow = new Graphics();
+  pressureGaugeGlow.blendMode = "add";
+  pressureGaugeGlow.filters = [new BlurFilter({ strength: 5, quality: 1 })];
   const pressureGauge = new Graphics();
-  const pressureStatus = text("", 13); pressureStatus.position.set(390, 275);
-  const wheelCue = createInteractionCue("GRAB AND CRANK"); wheelCue.position.set(218, 304);
-  pressureWheel.addChild(pressureWheelArt); pressure.body.addChild(pressureWheel, pressureGauge, pressureStatus, wheelCue);
+  const pressureScanlines = new Graphics();
+  for (let y = pressureScope.y + 3; y < pressureScope.y + pressureScope.height - 2; y += 4) {
+    pressureScanlines.moveTo(pressureScope.x + 4, y).lineTo(pressureScope.x + pressureScope.width - 4, y);
+  }
+  pressureScanlines.stroke({ color: 0x000000, width: 1, alpha: 0.38 });
+  const pressureVignette = new Graphics()
+    .roundRect(pressureScope.x + 2, pressureScope.y + 2, pressureScope.width - 4, pressureScope.height - 4, 4)
+    .stroke({ color: 0x000000, width: 5, alpha: 0.3 });
+  const pressureCrt = new NineSliceSprite({
+    texture: hardware.pressureCrt,
+    leftWidth: 120,
+    topHeight: 90,
+    rightWidth: 120,
+    bottomHeight: 90,
+    width: 1445,
+    height: 280
+  });
+  pressureCrt.width = 780; pressureCrt.height = 1360;
+  pressureCrt.position.set(410, 50); pressureCrt.scale.set(0.2); pressureCrt.roundPixels = true;
+  const wheelCue = createInteractionCue("GRAB AND CRANK"); wheelCue.position.set(250, 318);
+  pressureWheel.addChild(pressureWheelArt);
+  pressure.body.addChild(
+    pressureScreenGlow,
+    pressureScreen,
+    pressureGuide,
+    pressureScaleGlow,
+    pressureScale,
+    pressureGaugeGlow,
+    pressureGauge,
+    pressureScanlines,
+    pressureVignette,
+    pressureCrt,
+    pressureWheel,
+    wheelCue
+  );
   let wheelDragAngle: number | null = null;
   let wheelVisualAngle = 0;
   let wheelVelocity = 0;
@@ -92,8 +180,8 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
     if (delta < -Math.PI) delta += Math.PI * 2;
     if (Math.abs(delta) < 0.015) return;
     wheelVisualAngle += delta;
-    wheelVelocity = wheelVelocity * 0.42 + delta * 28;
-    handlers.dispatch({ type: "CRANK_PRESSURE", amount: delta * 3.6 });
+    wheelVelocity = wheelVelocity * 0.32 + delta * 18;
+    handlers.dispatch({ type: "CRANK_PRESSURE", amount: delta * 5.8 });
     wheelDragAngle = next;
   };
   pressure.root.eventMode = "static";
@@ -102,34 +190,97 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
   pressureWheel.on("pointerup", endWheelDrag); pressureWheel.on("pointerupoutside", endWheelDrag);
   pressure.root.on("pointerup", endWheelDrag); pressure.root.on("pointerupoutside", endWheelDrag);
 
-  const vents = shell("THERMAL COUPLING", frames.standard, () => close());
+  const vents = shell(nameplates.thermalCoupling, { x: 128, y: 18, width: 215, rotation: 0.011 }, frames.sealed, () => close());
+  const tempScope = { x: 68, y: 51, width: 532, height: 48 } as const;
+  const tempScreenGlow = new Graphics()
+    .roundRect(tempScope.x - 2, tempScope.y - 2, tempScope.width + 4, tempScope.height + 4, 5)
+    .stroke({ color: 0x4f9a83, width: 4, alpha: 0.28 });
+  tempScreenGlow.blendMode = "add";
+  tempScreenGlow.filters = [new BlurFilter({ strength: 5, quality: 1 })];
+  const tempScreen = new Graphics()
+    .roundRect(tempScope.x, tempScope.y, tempScope.width, tempScope.height, 4)
+    .fill(0x0a1714);
+  const tempScale = new Graphics();
+  for (let tick = 0; tick <= 10; tick += 1) {
+    const tickX = tempScope.x + 8 + (tempScope.width - 16) * tick / 10;
+    const tickHeight = tick % 5 === 0 ? 12 : tick % 2 === 0 ? 8 : 5;
+    tempScale.moveTo(tickX, tempScope.y + tempScope.height - 6).lineTo(tickX, tempScope.y + tempScope.height - 6 - tickHeight);
+  }
+  tempScale.stroke({ color: 0xc34e43, width: 1, alpha: 0.72 });
+  const tempGaugeGlow = new Graphics();
+  tempGaugeGlow.blendMode = "add";
+  tempGaugeGlow.filters = [new BlurFilter({ strength: 5, quality: 1 })];
   const tempInstrument = new Graphics();
-  const tempStatus = text("IN BAND", 18, 0xe9dfc7); tempStatus.anchor.set(0.5); tempStatus.position.set(334, 105);
+  const tempScanlines = new Graphics();
+  for (let y = tempScope.y + 3; y < tempScope.y + tempScope.height - 2; y += 4) {
+    tempScanlines.moveTo(tempScope.x + 4, y).lineTo(tempScope.x + tempScope.width - 4, y);
+  }
+  tempScanlines.stroke({ color: 0x000000, width: 1, alpha: 0.38 });
+  const tempCrt = new NineSliceSprite({
+    texture: hardware.pressureCrt,
+    leftWidth: 120,
+    topHeight: 90,
+    rightWidth: 120,
+    bottomHeight: 90,
+    width: 2800,
+    height: 380
+  });
+  tempCrt.position.set(54, 38); tempCrt.scale.set(0.2); tempCrt.roundPixels = true;
   const thermalHardware = new Graphics();
+  const thermalFixtureLayer = new Container();
   const thermalCableLayer = new Container();
-  const feedY = [156, 198, 240, 282] as const;
+  const feedY = [140, 197, 254, 311] as const;
   const feedX = 84;
-  const portX = 584;
+  const portX = 570;
   const socketPositions: Record<ThermalSocketId, { x: number; y: number }> = {
     port_0: { x: portX, y: feedY[0] }, port_1: { x: portX, y: feedY[1] },
     port_2: { x: portX, y: feedY[2] }, port_3: { x: portX, y: feedY[3] }
   };
+  const socketViews = THERMAL_PORT_IDS.map((port, index) => {
+    const sprite = new Sprite(hardware.thermalSocket);
+    sprite.anchor.set(0.5);
+    sprite.scale.set(46 / hardware.thermalSocket.width);
+    sprite.position.set(socketPositions[port].x, socketPositions[port].y);
+    sprite.roundPixels = true;
+    thermalFixtureLayer.addChild(sprite);
+    return { port, index, sprite };
+  });
+  const ledViews = THERMAL_PORT_IDS.map((port, index) => {
+    const initial = THERMAL_FEED_IDS[index];
+    const sprite = new Sprite(hardware.thermalLed[initial]);
+    sprite.anchor.set(0.5);
+    sprite.scale.set(31 / hardware.thermalLed[initial].width);
+    sprite.position.set(623, feedY[index]);
+    sprite.roundPixels = true;
+    thermalFixtureLayer.addChild(sprite);
+    return { port, index, sprite };
+  });
   let activeThermalFeed: ThermalFeedId | null = null;
   let thermalDragPoint = { x: 160, y: 180 };
-  let cableClock = 0;
+  const parkedThermalPositions = Object.fromEntries(
+    THERMAL_FEED_IDS.map((feed, index) => [feed, { x: 154, y: feedY[index] }])
+  ) as Record<ThermalFeedId, { x: number; y: number }>;
   let lastThermalCycle = handlers.snapshot().thermal.cycle;
   let thermalFlickerMs = 0;
   const cableViews = THERMAL_FEED_IDS.map((feed, index) => {
-    const cable = new Graphics();
-    cable.eventMode = "none";
-    const plug = new Container(); plug.eventMode = "static"; plug.cursor = "grab"; plug.hitArea = new Rectangle(-17, -11, 34, 22);
-    const plugArt = new Graphics(); plug.addChild(plugArt);
-    const points = Array.from({ length: 14 }, (_, pointIndex) => ({
-      x: feedX + 28 + pointIndex * 28,
-      y: feedY[index] + Math.sin(pointIndex / 13 * Math.PI) * 28,
-      px: feedX + 28 + pointIndex * 28,
-      py: feedY[index] + Math.sin(pointIndex / 13 * Math.PI) * 28
+    const plug = new Container(); plug.eventMode = "static"; plug.cursor = "grab"; plug.hitArea = new Rectangle(-35, -22, 70, 44);
+    const plugShadow = new Sprite(hardware.thermalDisconnected[feed]);
+    plugShadow.anchor.set(0.82, 0.5); plugShadow.tint = 0x000000; plugShadow.alpha = 0.48; plugShadow.position.set(2, 3);
+    const plugArt = new Sprite(hardware.thermalDisconnected[feed]);
+    plugArt.anchor.set(0.82, 0.5);
+    plug.addChild(plugShadow, plugArt);
+    const points = Array.from({ length: 18 }, (_, pointIndex) => ({
+      x: feedX + pointIndex * 28,
+      y: feedY[index] + Math.sin(pointIndex / 17 * Math.PI) * 14,
+      px: feedX + pointIndex * 28,
+      py: feedY[index] + Math.sin(pointIndex / 17 * Math.PI) * 14
     }));
+    const pipeScale = 16 / hardware.thermalPipe[feed].height;
+    const meshPoints = points.map((point) => new Point(point.x / pipeScale, point.y / pipeScale));
+    const cable = new MeshRope({ texture: hardware.thermalPipe[feed], points: meshPoints, textureScale: 0 });
+    cable.scale.set(pipeScale);
+    cable.eventMode = "none";
+    cable.roundPixels = true;
     plug.on("pointerdown", (event) => {
       handlers.dispatch({ type: "PICK_UP_THERMAL_PLUG", feed });
       if (handlers.snapshot().thermal.held !== feed) return;
@@ -137,35 +288,48 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
       thermalDragPoint = vents.body.toLocal(event.global);
     });
     thermalCableLayer.addChild(cable, plug);
-    return { feed, index, cable, plug, plugArt, points };
+    return { feed, index, cable, plug, plugShadow, plugArt, points, meshPoints, pipeScale };
   });
   const moveThermalPlug = (event: { global: { x: number; y: number } }) => {
     if (!activeThermalFeed) return;
     const point = vents.body.toLocal(event.global);
-    thermalDragPoint = { x: Math.max(118, Math.min(624, point.x)), y: Math.max(132, Math.min(310, point.y)) };
+    thermalDragPoint = { x: Math.max(104, Math.min(624, point.x)), y: Math.max(122, Math.min(320, point.y)) };
   };
   const releaseThermalPlug = () => {
     if (!activeThermalFeed) return;
+    const releasedFeed = activeThermalFeed;
     const state = handlers.snapshot();
     let closest: ThermalSocketId | null = null;
-    let closestDistance = 14;
+    let closestDistance = 24;
     for (const socket of THERMAL_PORT_IDS) {
       const target = socketPositions[socket];
       const distance = Math.hypot(thermalDragPoint.x - target.x, thermalDragPoint.y - target.y);
       const occupied = THERMAL_FEED_IDS.some((feed) => state.thermal.connections[feed] === socket);
       if (!occupied && distance < closestDistance) { closest = socket; closestDistance = distance; }
     }
+    if (!closest) parkedThermalPositions[releasedFeed] = { ...thermalDragPoint };
     handlers.dispatch(closest ? { type: "SEAT_THERMAL_PLUG", socket: closest } : { type: "DROP_THERMAL_PLUG" });
-    const view = cableViews.find((candidate) => candidate.feed === activeThermalFeed);
+    const view = cableViews.find((candidate) => candidate.feed === releasedFeed);
     if (view) view.plug.cursor = "grab";
     activeThermalFeed = null;
   };
   vents.root.eventMode = "static";
   vents.root.on("globalpointermove", moveThermalPlug);
   vents.root.on("pointerup", releaseThermalPlug); vents.root.on("pointerupoutside", releaseThermalPlug);
-  vents.body.addChild(tempInstrument, tempStatus, thermalHardware, thermalCableLayer);
+  vents.body.addChild(
+    tempScreenGlow,
+    tempScreen,
+    tempScale,
+    tempGaugeGlow,
+    tempInstrument,
+    tempScanlines,
+    tempCrt,
+    thermalFixtureLayer,
+    thermalCableLayer,
+    thermalHardware
+  );
 
-  const ignition = shell("IGNITION SEQUENCER", frames.reinforced, () => close());
+  const ignition = shell(nameplates.ignitionSequencer, { x: 132, y: 20, width: 225, rotation: -0.008 }, frames.standard, () => close());
   const ignitionField = new Graphics();
   const ignitionNotes = new Graphics();
   const ignitionStatus = text("PULL THE EXCITER HANDLE", 11); ignitionStatus.anchor.set(0.5); ignitionStatus.position.set(414, 312);
@@ -227,7 +391,7 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
   starter.on("pointerupoutside", releaseStarter);
   ignition.body.addChild(ignitionField, ignitionNotes, starterHousing, rope, starter, ignitionStatus);
 
-  const water = shell("WATER RECLAMATION", frames.standard, () => close());
+  const water = shell(nameplates.waterReclamation, { x: 130, y: 18, width: 220, rotation: 0.012 }, frames.reinforced, () => close());
   const tileSize = 58; const boardX = 218; const boardY = 66;
   const pipeViews = Array.from({ length: 16 }, (_, index) => {
     const root = new Container(); root.position.set(boardX + (index % 4) * tileSize, boardY + Math.floor(index / 4) * tileSize);
@@ -243,7 +407,7 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
   const waterStatus = text("NO FLOW", 11); waterStatus.anchor.set(0.5); waterStatus.position.set(334, 320);
   water.body.addChild(stubs, source, feed, flowCounter, waterStatus);
 
-  const pod = shell("TRANSFER POD", frames.reinforced, () => close());
+  const pod = shell(nameplates.transferPod, { x: 110, y: 20, width: 185, rotation: -0.014 }, frames.sealed, () => close());
   const podDisplay = text("______", 30, 0xe2a348); podDisplay.position.set(250, 68);
   const podStatus = text("ENTER LAUNCH SEQUENCE", 12); podStatus.position.set(234, 108);
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "DEL", "0", "ENTER"].forEach((digit, index) => {
@@ -263,63 +427,96 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
   const transitions = Object.fromEntries(Object.entries(panels).map(([id, panel]) => [id, new PanelApertureTransition(panel.root)])) as Record<Level2PuzzleId, PanelApertureTransition>;
   container.addChild(pressure.root, vents.root, water.root, ignition.root, pod.root);
 
-  const drawGauge = (graphics: Graphics, x: number, y: number, width: number, value: number, band: { min: number; max: number }) => {
-    graphics.clear().roundRect(x, y, width, 14, 3).fill(0x080a0b).stroke({ color: 0x4c4c45, width: 1 });
-    graphics.rect(x + width * band.min / 100, y + 3, width * (band.max - band.min) / 100, 8).fill({ color: 0x68bd62, alpha: 0.72 });
-    graphics.rect(x + width * value / 100 - 1, y - 4, 3, 22).fill(0xe2a348);
+  const drawPressureGauge = (value: number, band: { min: number; max: number }) => {
+    pressureGauge.clear();
+    pressureGaugeGlow.clear();
+    const inset = 8;
+    const y = pressureScope.y + inset;
+    const height = pressureScope.height - inset * 2;
+    const bandY = y + height * (1 - band.max / 100);
+    const bandHeight = height * (band.max - band.min) / 100;
+    const needleY = y + height * (1 - value / 100);
+
+    pressureGauge
+      .roundRect(pressureScope.x + 5, bandY, pressureScope.width - 10, bandHeight, 3)
+      .fill({ color: 0x68bd62, alpha: 0.34 })
+      .stroke({ color: 0x68bd62, width: 1, alpha: 0.78 })
+      .rect(pressureScope.x + 3, needleY - 2, pressureScope.width - 6, 5)
+      .fill({ color: 0xe2a348, alpha: 0.96 });
+    pressureGaugeGlow
+      .roundRect(pressureScope.x + 6, bandY + 1, pressureScope.width - 12, Math.max(2, bandHeight - 2), 3)
+      .fill({ color: 0x68bd62, alpha: 0.16 })
+      .rect(pressureScope.x + 3, needleY - 3, pressureScope.width - 6, 7)
+      .fill({ color: 0xe2a348, alpha: 0.48 });
   };
 
   const refresh = () => {
     const state = handlers.snapshot();
-    pressureWheelArt.clear().circle(0, 0, 80).stroke({ color: 0x9b8256, width: 8 }).circle(0, 0, 19).fill(0x171a1b).stroke({ color: 0xe2a348, width: 3 });
-    for (let index = 0; index < 8; index += 1) {
-      const angle = index * Math.PI / 4 + wheelVisualAngle;
-      pressureWheelArt.moveTo(Math.cos(angle) * 20, Math.sin(angle) * 20).lineTo(Math.cos(angle) * 76, Math.sin(angle) * 76);
-    }
-    pressureWheelArt.stroke({ color: 0x6d675b, width: 5 });
+    pressureWheel.rotation = wheelVisualAngle;
     const pressureBand = getPressureBand(state);
-    drawGauge(pressureGauge, 382, 144, 210, pressureNeedle, pressureBand);
-    pressureStatus.text = state.pressure < pressureBand.min ? "PRESSURE LOW" : state.pressure > pressureBand.max ? "PRESSURE HIGH" : "PRESSURE HOLDING";
+    drawPressureGauge(pressureNeedle, pressureBand);
 
     tempInstrument.clear();
-    drawGauge(tempInstrument, 66, 60, 536, temperatureNeedle, TEMPERATURE_SAFE_BAND);
-    tempInstrument.roundRect(54, 48, 560, 54, 5).stroke({ color: 0x6d675b, width: 2 });
-    tempStatus.text = state.temperature > TEMPERATURE_SAFE_BAND.max ? "RUNNING WARM" : "IN BAND";
-    tempStatus.tint = state.temperature > TEMPERATURE_SAFE_BAND.max ? 0xc96b5d : 0xe9dfc7;
+    tempGaugeGlow.clear();
+    const tempInset = 8;
+    const tempX = tempScope.x + tempInset;
+    const tempWidth = tempScope.width - tempInset * 2;
+    const safeX = tempX + tempWidth * TEMPERATURE_SAFE_BAND.min / 100;
+    const safeWidth = tempWidth * (TEMPERATURE_SAFE_BAND.max - TEMPERATURE_SAFE_BAND.min) / 100;
+    const needleX = tempX + tempWidth * temperatureNeedle / 100;
+    tempInstrument
+      .roundRect(safeX, tempScope.y + 8, safeWidth, tempScope.height - 16, 3)
+      .fill({ color: 0x68bd62, alpha: 0.34 })
+      .stroke({ color: 0x68bd62, width: 1, alpha: 0.78 })
+      .rect(needleX - 2, tempScope.y + 5, 5, tempScope.height - 10)
+      .fill({ color: 0xe2a348, alpha: 0.96 });
+    tempGaugeGlow
+      .roundRect(safeX + 1, tempScope.y + 9, Math.max(2, safeWidth - 2), tempScope.height - 18, 3)
+      .fill({ color: 0x68bd62, alpha: 0.16 })
+      .rect(needleX - 3, tempScope.y + 4, 7, tempScope.height - 8)
+      .fill({ color: 0xe2a348, alpha: 0.48 });
     thermalHardware.clear();
     const mismatchCount = getThermalMismatchCount(state);
     if (state.thermal.cycle !== lastThermalCycle) {
       lastThermalCycle = state.thermal.cycle;
       thermalFlickerMs = 520;
     }
-    THERMAL_FEED_IDS.forEach((feed, index) => {
+    THERMAL_FEED_IDS.forEach((_feed, index) => {
       const y = feedY[index];
-      thermalHardware.roundRect(feedX - 24, y - 15, 48, 30, 4).fill(0x111516).stroke({ color: THERMAL_COLORS[feed], width: 2 });
-      drawThermalShape(thermalHardware, feedX, y, feed, 7, THERMAL_COLORS[feed]);
-      thermalHardware.rect(feedX + 24, y - 6, 12, 12).fill(0x6b5735);
+      for (let step = 0; step < 11; step += 1) {
+        const radius = 19 - step * 1.55;
+        thermalHardware.circle(feedX, y, radius).fill({ color: 0x010304, alpha: 0.04 + step * 0.072 });
+      }
     });
     THERMAL_PORT_IDS.forEach((port, index) => {
-      const { x, y } = socketPositions[port];
       const wanted = state.thermal.portAssignments[index];
       const occupant = THERMAL_FEED_IDS.find((feed) => state.thermal.connections[feed] === port);
       const matched = occupant === wanted;
       const affected = state.thermal.lastSwap?.includes(index) ?? false;
       const flicker = affected && thermalFlickerMs > 0 ? 0.25 + Math.abs(Math.sin(thermalFlickerMs * 0.055)) * 0.75 : 1;
-      thermalHardware.circle(x, y, 17).fill(0x090b0c).stroke({ color: occupant ? 0x8a744e : 0x4c4c45, width: 3 });
-      thermalHardware.circle(x, y, 8).fill(0x020304);
-      thermalHardware.circle(x, y - 27, 10).fill({ color: THERMAL_COLORS[wanted], alpha: (matched ? 1 : 0.28) * flicker }).stroke({ color: 0x6d675b, width: 1 });
-      drawThermalShape(thermalHardware, x, y - 27, wanted, 5, matched ? 0xf2e4c4 : THERMAL_COLORS[wanted], matched ? 0.92 : 0.52);
+      const socketView = socketViews[index]!;
+      socketView.sprite.visible = !occupant;
+      const ledView = ledViews[index]!;
+      ledView.sprite.texture = hardware.thermalLed[wanted];
+      ledView.sprite.scale.set(31 / ledView.sprite.texture.width);
+      ledView.sprite.alpha = (matched ? 1 : 0.42) * flicker;
     });
     thermalCableLayer.alpha = 1 - mismatchCount * 0.07;
     cableViews.forEach((view) => {
-      const color = THERMAL_COLORS[view.feed];
-      view.plugArt.clear().roundRect(-16, -10, 32, 20, 4).fill(0x171a1b).stroke({ color, width: 3 });
-      drawThermalShape(view.plugArt, 0, 0, view.feed, 5, color);
-      view.cable.clear().moveTo(view.points[0]!.x, view.points[0]!.y);
-      view.points.slice(1).forEach((point) => view.cable.lineTo(point.x, point.y));
-      view.cable.stroke({ color, width: 5, alpha: 0.92 });
-      const tail = view.points.at(-1)!;
-      view.plug.position.set(tail.x, tail.y);
+      const connected = Boolean(state.thermal.connections[view.feed]);
+      const texture = connected ? hardware.thermalConnected[view.feed] : hardware.thermalDisconnected[view.feed];
+      const scale = connected ? 57 / texture.width : 40 / texture.height;
+      // The connected texture includes the receiver plate on its right side.
+      // Its visual plate centre sits at roughly 62% of the cropped frame, not
+      // at the texture centre. Anchor there so occupied and empty sockets share
+      // the exact same room-space centre.
+      const anchorX = connected ? 0.62 : 0.82;
+      view.plugArt.texture = texture;
+      view.plugArt.anchor.set(anchorX, 0.5);
+      view.plugArt.scale.set(scale);
+      view.plugShadow.texture = texture;
+      view.plugShadow.anchor.set(anchorX, 0.5);
+      view.plugShadow.scale.set(scale);
     });
 
     stubs.clear().moveTo(boardX - 16, boardY + tileSize * 1.5).lineTo(boardX, boardY + tileSize * 1.5).stroke({ color: 0xa97b42, width: 12 })
@@ -415,8 +612,8 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
       if (wheelDragAngle === null && Math.abs(wheelVelocity) > 0.002) {
         const travel = wheelVelocity * seconds;
         wheelVisualAngle += travel;
-        handlers.dispatch({ type: "CRANK_PRESSURE", amount: travel * 1.1 });
-        wheelVelocity *= Math.exp(-5.8 * seconds);
+        handlers.dispatch({ type: "CRANK_PRESSURE", amount: travel * 0.72 });
+        wheelVelocity *= Math.exp(-8.4 * seconds);
       }
       const state = handlers.snapshot();
       pressureNeedleVelocity += (state.pressure - pressureNeedle) * 68 * seconds;
@@ -426,30 +623,39 @@ export function createLevel2PuzzleOverlays(handlers: Level2PuzzleHandlers, frame
       temperatureNeedleVelocity *= Math.exp(-7.6 * seconds);
       temperatureNeedle += temperatureNeedleVelocity * seconds;
       if (active === "vents") {
-        cableClock += deltaMs;
         thermalFlickerMs = Math.max(0, thermalFlickerMs - deltaMs);
         const thermalState = state.thermal;
         cableViews.forEach((view) => {
-          const anchor = { x: feedX + 36, y: feedY[view.index] };
+          const anchor = { x: feedX, y: feedY[view.index] };
           const socket = thermalState.connections[view.feed];
-          const endpoint = activeThermalFeed === view.feed
+          const headPosition = activeThermalFeed === view.feed
             ? thermalDragPoint
             : socket
               ? socketPositions[socket]
-              : { x: 154 + view.index * 11, y: Math.min(308, feedY[view.index] + 58) };
+              : parkedThermalPositions[view.feed];
+          const endpoint = {
+            // Extend beneath the head's rounded rear collar. Ending at the
+            // alpha edge exposed a visible gap between two otherwise aligned
+            // sprites.
+            x: headPosition.x - (socket ? 31 : 43),
+            y: headPosition.y
+          };
+          view.plug.position.set(headPosition.x, headPosition.y);
           const distance = Math.hypot(endpoint.x - anchor.x, endpoint.y - anchor.y);
-          const sag = 22 + Math.min(48, distance * 0.09);
+          const sag = 14 + Math.min(30, distance * 0.055);
           view.points.forEach((point, index) => {
             const t = index / (view.points.length - 1);
             if (index === 0) { point.x = anchor.x; point.y = anchor.y; point.px = point.x; point.py = point.y; return; }
             if (index === view.points.length - 1) { point.x = endpoint.x; point.y = endpoint.y; point.px = point.x; point.py = point.y; return; }
-            const targetX = anchor.x + (endpoint.x - anchor.x) * t + Math.sin(t * Math.PI * 2 + cableClock * 0.0013 + view.index) * 2.5;
-            const targetY = anchor.y + (endpoint.y - anchor.y) * t + Math.sin(Math.PI * t) * sag;
-            const vx = (point.x - point.px) * 0.82;
-            const vy = (point.y - point.py) * 0.82;
-            point.px = point.x; point.py = point.y;
-            point.x += vx + (targetX - point.x) * Math.min(1, seconds * 18);
-            point.y += vy + (targetY - point.y) * Math.min(1, seconds * 18);
+            const curve = Math.pow(Math.sin(Math.PI * t), 2.2);
+            const targetX = anchor.x + (endpoint.x - anchor.x) * t;
+            const targetY = anchor.y + (endpoint.y - anchor.y) * t + curve * sag;
+            point.x = targetX; point.y = targetY;
+            point.px = targetX; point.py = targetY;
+          });
+          view.meshPoints.forEach((point, index) => {
+            const source = view.points[index]!;
+            point.set(source.x / view.pipeScale, source.y / view.pipeScale);
           });
         });
       }

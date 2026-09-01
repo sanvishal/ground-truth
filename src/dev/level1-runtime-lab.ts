@@ -113,6 +113,14 @@ export function mountLevel1RuntimeLab(
     if (session.snapshot().spiral.regulator === "precise") session.reset();
     solveBreakerBank();
   };
+  const simulateOpenDoor = () => {
+    readyRegulator();
+    setRegulator(REGULATOR_PRECISE_TARGET);
+    dispatch({ type: "CHECK_HARMONICS" });
+    dispatch({ type: "REFINE" });
+    dispatch({ type: "DIVERT_DOOR" });
+    dispatch({ type: "COMMIT_DOOR" });
+  };
 
   const controlGrid = document.createElement("div");
   controlGrid.className = "runtime-grid";
@@ -143,6 +151,7 @@ export function mountLevel1RuntimeLab(
     group("DOOR", [
       button("DIVERT POWER", () => dispatch({ type: "DIVERT_DOOR" })),
       button("COMMIT CLEAR", () => dispatch({ type: "COMMIT_DOOR" })),
+      button("SIMULATE OPEN DOOR", simulateOpenDoor),
       button("RESET RUN", () => session.reset(), "quiet")
     ]),
     group("SCENE FX", [

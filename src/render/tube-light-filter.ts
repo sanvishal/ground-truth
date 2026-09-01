@@ -12,9 +12,11 @@ const MAX_LIGHTS = 8;
 const vertex = `
 in vec2 aPosition;
 out vec2 vTextureCoord;
+out vec2 vSceneCoord;
 uniform vec4 uInputSize;
 uniform vec4 uOutputFrame;
 uniform vec4 uOutputTexture;
+uniform vec2 uSceneSize;
 
 void main(void)
 {
@@ -23,11 +25,16 @@ void main(void)
     position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;
     gl_Position = vec4(position, 0.0, 1.0);
     vTextureCoord = aPosition * (uOutputFrame.zw * uInputSize.zw);
+    // Keep authored lamp coordinates in the room's fixed 960x420 space.
+    // Filter texture UVs can include renderer padding and vary with output
+    // scale, which made the light source slide across the fixture on resize.
+    vSceneCoord = aPosition * uSceneSize;
 }
 `;
 
 const fragment = `
 in vec2 vTextureCoord;
+in vec2 vSceneCoord;
 out vec4 finalColor;
 uniform sampler2D uTexture;
 uniform vec4 uInputSize;
@@ -68,7 +75,7 @@ void main(void)
         1.0
     ));
 
-    vec2 pixel = vTextureCoord * uSceneSize;
+    vec2 pixel = vSceneCoord;
     vec3 ambientTint = mix(vec3(1.0), uAmbientColor.rgb, 0.42);
     vec3 intensity = ambientTint * uAmbientColor.a;
 
@@ -146,6 +153,7 @@ struct TubeLightingUniforms {
 struct VSOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) sceneCoord: vec2<f32>,
 };
 
 @vertex
@@ -154,7 +162,8 @@ fn mainVertex(@location(0) aPosition: vec2<f32>) -> VSOutput {
     position.x = position.x * (2.0 / gfu.uOutputTexture.x) - 1.0;
     position.y = position.y * (2.0 * gfu.uOutputTexture.z / gfu.uOutputTexture.y) - gfu.uOutputTexture.z;
     let uv = aPosition * (gfu.uOutputFrame.zw * gfu.uInputSize.zw);
-    return VSOutput(vec4(position, 0.0, 1.0), uv);
+    let sceneCoord = aPosition * tubeLightingUniforms.uSceneSize;
+    return VSOutput(vec4(position, 0.0, 1.0), uv, sceneCoord);
 }
 
 fn luminance(color: vec3<f32>) -> f32 {
@@ -168,7 +177,7 @@ fn straightColor(uv: vec2<f32>) -> vec3<f32> {
 }
 
 @fragment
-fn mainFragment(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+fn mainFragment(@location(0) uv: vec2<f32>, @location(1) sceneCoord: vec2<f32>) -> @location(0) vec4<f32> {
     let sampleColor = textureSample(uTexture, uSampler, uv);
     if (sampleColor.a <= 0.0) { return sampleColor; }
     let diffuseColor = sampleColor.rgb / sampleColor.a;
@@ -182,7 +191,7 @@ fn mainFragment(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         (upLum - downLum) * tubeLightingUniforms.uNormalStrength,
         1.0
     ));
-    let pixel = uv * tubeLightingUniforms.uSceneSize;
+    let pixel = sceneCoord;
     let ambientTint = mix(vec3(1.0), tubeLightingUniforms.uAmbientColor.rgb, vec3(0.42));
     var intensity = ambientTint * tubeLightingUniforms.uAmbientColor.a;
 

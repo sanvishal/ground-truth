@@ -1,5 +1,5 @@
 import { BlurFilter, Container, Graphics, Rectangle, Sprite } from "pixi.js";
-import { getJunctionFaultGlyph, getJunctionFingerprint, REGULATOR_ALIGNMENT_TOLERANCE, SIGNAL_GLYPHS, type Level1State, type SignalGlyph } from "../sim/level1";
+import { getJunctionFaultGlyph, getJunctionFingerprint, getRegulatorControlError, getRegulatorScopeGeometry, regulatorPeaksInWindows, REGULATOR_PRECISE_TARGET, SIGNAL_GLYPHS, type Level1State, type SignalGlyph } from "../sim/level1";
 import { PanelApertureTransition } from "./panel-aperture-transition";
 import { createHardwareSprite, createInteractionCue, createPanelNameplate, createPanelSurface, type InteractionCue, type PanelFrameTextures, type PanelHardwareTextures, type PanelNameplateTextures } from "./panel-nine-slice";
 import { createPanelMistakeSparks } from "./panel-mistake-sparks";
@@ -91,15 +91,7 @@ export function createLevel1PuzzleOverlays(
   let regulatorDrawAccumulator = 0;
   let cuePulseMs = 0;
   const regulatorFrameMs = 1000 / 15;
-  const regulatorError = (value: number): number => {
-    const rawError = 2 - value;
-    return Math.abs(rawError) <= REGULATOR_ALIGNMENT_TOLERANCE
-      ? 0
-      : Math.sign(rawError) * (Math.abs(rawError) - REGULATOR_ALIGNMENT_TOLERANCE);
-  };
-  let visualFrequencyError = regulatorError(handlers.snapshot().regulatorPuzzle.sliders[1] ?? 0);
   let signalPhase = 0;
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const mistakeSparks = createPanelMistakeSparks();
   let seenArcFlashes = handlers.snapshot().breakerPuzzle.arcFlashes;
   const close = (playSound = false, immediate = false) => {
@@ -256,9 +248,11 @@ export function createLevel1PuzzleOverlays(
   scopeContent.addChild(scopeGlass, scopeGuides, gateAView, gateBView, waveformGlow, waveform, scanlines, glassVignette);
   regulator.body.addChild(scopeBezel, scopeContent, scopeMask);
   const sliderViews: Array<{ root: Container; knob: Container; cue: InteractionCue; index: number }> = [];
-  const leverTop = 92;
-  const leverTravel = 184;
-  const leverInset = 25;
+  const leverTop = 76;
+  const leverTravel = 219;
+  // Keep the handle inside the visible inner rail, not merely inside the
+  // transparent bounds of the track texture and its decorative end caps.
+  const leverInset = 30;
   const leverVisualTravel = leverTravel - leverInset * 2;
   const leverY = (value: number) => leverInset + ((4 - value) / 4) * leverVisualTravel;
   const displayedRegulatorSliders = (): readonly number[] =>
@@ -269,7 +263,8 @@ export function createLevel1PuzzleOverlays(
     if (!ready || state.spiral.regulator === "precise") return;
     const local = regulator.body.toLocal(event.global);
     const normalizedY = (local.y - leverTop - leverInset) / leverVisualTravel;
-    const value = Math.round(Math.max(0, Math.min(4, 4 - normalizedY * 4)) * 100) / 100;
+    const rawValue = Math.max(0, Math.min(4, 4 - normalizedY * 4));
+    const value = Math.round(rawValue * 100) / 100;
     const sliders = regulatorPreview ?? [...state.regulatorPuzzle.sliders] as [number, number, number];
     if (Math.abs((sliders[index] ?? 0) - value) < 0.025) return;
     sliders[index] = value;
@@ -282,7 +277,7 @@ export function createLevel1PuzzleOverlays(
     root.eventMode = "static";
     root.cursor = "ns-resize";
     root.hitArea = new Rectangle(-27, -20, 54, leverTravel + 40);
-    const track = createHardwareSprite(panelHardware.regulatorTrack, 36, 2, 3);
+    const track = createHardwareSprite(panelHardware.regulatorTrack, 48, 2, 3);
     track.position.set(0, leverTravel / 2);
     const knob = createHardwareSprite(panelHardware.regulatorHandle, 50, 5, 7, 0.76, 2.5);
     const cue = createInteractionCue();
@@ -399,7 +394,9 @@ export function createLevel1PuzzleOverlays(
     const regulatorReady = state.spiral.breaker4Pulled && state.spiral.junction === "clean";
     const displayedSliders = regulatorPreview ?? state.regulatorPuzzle.sliders;
     sliderViews.forEach(({ root, knob, index }) => {
-      knob.y = leverY(displayedSliders[index] ?? 0);
+      const value = displayedSliders[index] ?? 0;
+      knob.y = leverY(value);
+      knob.tint = 0xffffff;
       const adjustable = regulatorReady && state.spiral.regulator !== "precise";
       root.eventMode = adjustable ? "static" : "none";
       root.cursor = adjustable ? "ns-resize" : "default";
@@ -431,38 +428,41 @@ export function createLevel1PuzzleOverlays(
     const state = handlers.snapshot();
     waveform.clear();
     waveformGlow.clear();
-    const [phaseControl = 0, frequencyControl = 0, dampingControl = 0] = displayedRegulatorSliders();
-    const rawPhaseError = 2 - phaseControl;
-    const frequencyError = visualFrequencyError;
-    const phaseError = Math.abs(rawPhaseError) <= REGULATOR_ALIGNMENT_TOLERANCE
-      ? 0
-      : Math.sign(rawPhaseError) * (Math.abs(rawPhaseError) - REGULATOR_ALIGNMENT_TOLERANCE);
-    const targetSpacing = Math.PI / 60;
-    const spacing = targetSpacing * (1 + frequencyError * 0.18);
-    const drift = reducedMotion.matches ? frequencyError * 0.55 : waveDriftPhase;
-    const phaseOffset = phaseError * 0.72 + drift;
-    const ringing = Math.max(0, 3.2 - dampingControl) * 8.5;
+    const displayedSliders = displayedRegulatorSliders();
+    const [phaseControl = 0, frequencyControl = 0, dampingControl = 0] = displayedSliders;
+    const geometry = getRegulatorScopeGeometry(displayedSliders);
+    const spacing = geometry.spacing;
+    const phaseOffset = geometry.phaseOffset + waveDriftPhase;
+    const phaseError = 2 - phaseControl;
+    const frequencyError = 2 - frequencyControl;
+    const dampingTarget = REGULATOR_PRECISE_TARGET[2];
+    const ringing = Math.max(0, dampingTarget - dampingControl) * 8.5;
+    const overDamping = Math.max(0, dampingControl - dampingTarget);
+    const carrierAmplitude = 43 * Math.max(0.58, 1 - overDamping * 0.16);
     const disorder = Math.min(1,
       Math.abs(frequencyError) * 0.2
       + Math.abs(phaseError) * 0.16
-      + Math.max(0, 3.2 - dampingControl) / 3.2 * 0.72
+      + Math.max(0, dampingTarget - dampingControl) / dampingTarget * 0.72
     );
+    const peaksAccepted = regulatorPeaksInWindows(displayedSliders);
     const drawPeakWindow = (view: Graphics, centerX: number, relativeX: number): boolean => {
       const phase = relativeX * spacing + phaseOffset;
       const crestDistance = Math.abs(Math.atan2(Math.sin(phase - Math.PI / 2), Math.cos(phase - Math.PI / 2)));
       const strength = Math.max(0, 1 - crestDistance / 0.72);
       const inside = crestDistance <= spacing * 5;
+      const accepted = peaksAccepted;
+      const gateColor = accepted ? 0x83d1a1 : 0xe2a348;
       const top = scopeScreen.y + 3;
       const height = scopeScreen.height - 6;
       view
         .clear()
         .rect(centerX - 5, top, 10, height)
-        .fill({ color: 0xe2a348, alpha: 0.06 + strength * 0.16 })
-        .stroke({ color: 0xe2a348, width: inside ? 2 : 1, alpha: 0.48 + strength * 0.42 });
+        .fill({ color: gateColor, alpha: 0.06 + strength * 0.16 })
+        .stroke({ color: gateColor, width: accepted ? 3 : inside ? 2 : 1, alpha: 0.48 + strength * 0.42 });
       if (strength > 0.18) {
         view
           .rect(centerX - 9, top, 18, height)
-          .fill({ color: 0xe2a348, alpha: strength * 0.045 });
+          .fill({ color: gateColor, alpha: strength * (accepted ? 0.085 : 0.045) });
       }
       return inside;
     };
@@ -488,11 +488,11 @@ export function createLevel1PuzzleOverlays(
       const unevenHarmonics = Math.sin(phase * 2.35 + 1.1) * ringing * 0.62
         + Math.sin(phase * 4.7 - 0.4) * ringing * 0.34;
       const unstableNoise = disorder * (
-        Math.sin(phase * 7.3 + drift * 0.7) * 7
+        Math.sin(phase * 7.3 + phaseOffset * 0.7) * 7
         + Math.sin(phase * 11.1 - 0.8) * 4
       );
       const y = scopeCenterY + 1
-        - Math.sin(phase) * 43 * envelope
+        - Math.sin(phase) * carrierAmplitude * envelope
         - unevenHarmonics
         - unstableNoise;
       const curved = curvePoint(traceLeft + x, y);
@@ -588,21 +588,13 @@ export function createLevel1PuzzleOverlays(
           cue.pulseBorder.scale.set(1 + pulse * 0.055);
         }
         regulatorDrawAccumulator += deltaMs;
-        const frequencyControl = displayedRegulatorSliders()[1] ?? 0;
-        const targetFrequencyError = regulatorError(frequencyControl);
-        if (reducedMotion.matches) {
-          visualFrequencyError = targetFrequencyError;
+        const frequencyError = getRegulatorControlError(displayedRegulatorSliders()[1] ?? 0);
+        if (frequencyError === 0) {
+          waveDriftPhase *= Math.pow(0.006, deltaMs / 1000);
+          if (Math.abs(waveDriftPhase) < 0.001) waveDriftPhase = 0;
         } else {
-          const visualResponse = 1 - Math.pow(0.0001, deltaMs / 1000);
-          visualFrequencyError += (targetFrequencyError - visualFrequencyError) * visualResponse;
-          if (Math.abs(visualFrequencyError) < 0.002) visualFrequencyError = 0;
-          if (targetFrequencyError === 0) {
-            waveDriftPhase *= Math.pow(0.0025, deltaMs / 1000);
-            if (Math.abs(waveDriftPhase) < 0.002) waveDriftPhase = 0;
-          } else {
-            waveDriftPhase += deltaMs / 1000 * visualFrequencyError * 0.72;
-            waveDriftPhase = Math.atan2(Math.sin(waveDriftPhase), Math.cos(waveDriftPhase));
-          }
+          waveDriftPhase += deltaMs / 1000 * frequencyError * 0.4;
+          waveDriftPhase = Math.atan2(Math.sin(waveDriftPhase), Math.cos(waveDriftPhase));
         }
         if (regulatorDrawAccumulator >= regulatorFrameMs) {
           regulatorDrawAccumulator %= regulatorFrameMs;

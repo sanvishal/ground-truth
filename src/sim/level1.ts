@@ -31,9 +31,10 @@ export const JUNCTION_HIDDEN_NODES = [] as const;
 export const JUNCTION_ROUGH_TARGET = [0, 1, 2] as const;
 export const JUNCTION_CLEAN_TARGET = JUNCTION_ROUGH_TARGET;
 export const REGULATOR_ROUGH_TARGET = [2, 1, 3] as const;
-export const REGULATOR_PRECISE_TARGET = [2, 2, 3.2] as const;
-export const REGULATOR_ALIGNMENT_TOLERANCE = 0.24;
+export const REGULATOR_PRECISE_TARGET = [2, 2, 2.5] as const;
+export const REGULATOR_ALIGNMENT_TOLERANCE = 0.6;
 export const REGULATOR_TARGET_FREQUENCY = 64.9;
+export const REGULATOR_SCOPE_GATE_CENTERS = [52, 160] as const;
 export const BREAKER_LOAD_ORDER = [0, 1, 2] as const;
 
 export const LEVEL1_WIRES: ReadonlyArray<{ id: WireId; label: string; target: WirePort }> = [
@@ -346,9 +347,37 @@ const regulatorFrequencyForSliders = (sliders: readonly number[]): number => {
   return Math.round((91.4 - coarse * 7.4 - trim * 2.15) * 100) / 100;
 };
 
+export const getRegulatorControlError = (value: number): number => {
+  const rawError = 2 - value;
+  return Math.abs(rawError) <= REGULATOR_ALIGNMENT_TOLERANCE
+    ? 0
+    : Math.sign(rawError) * (Math.abs(rawError) - REGULATOR_ALIGNMENT_TOLERANCE);
+};
+
+export const regulatorPeaksInWindows = (sliders: readonly number[]): boolean => {
+  const phaseControl = sliders[0] ?? 0;
+  const frequencyControl = sliders[1] ?? 0;
+  if (Math.abs(phaseControl - 2) > REGULATOR_ALIGNMENT_TOLERANCE
+    || Math.abs(frequencyControl - 2) > REGULATOR_ALIGNMENT_TOLERANCE) return false;
+  const { spacing, phaseOffset } = getRegulatorScopeGeometry(sliders);
+  return REGULATOR_SCOPE_GATE_CENTERS.every((relativeX) => {
+    const phase = relativeX * spacing + phaseOffset;
+    const crestDistance = Math.abs(Math.atan2(Math.sin(phase - Math.PI / 2), Math.cos(phase - Math.PI / 2)));
+    return crestDistance <= spacing * 13;
+  });
+};
+
+export const getRegulatorScopeGeometry = (sliders: readonly number[]): { spacing: number; phaseOffset: number } => {
+  const phaseError = 2 - (sliders[0] ?? 0);
+  const frequencyError = getRegulatorControlError(sliders[1] ?? 0);
+  return {
+    spacing: Math.PI / 60 * (1 + frequencyError * 0.1),
+    phaseOffset: -0.84 + phaseError * 0.55
+  };
+};
+
 const matchesRegulatorTarget = (sliders: readonly number[], _target: readonly number[]): boolean =>
-  Math.abs((sliders[0] ?? 0) - REGULATOR_PRECISE_TARGET[0]) <= REGULATOR_ALIGNMENT_TOLERANCE
-  && Math.abs((sliders[1] ?? 0) - REGULATOR_PRECISE_TARGET[1]) <= REGULATOR_ALIGNMENT_TOLERANCE
+  regulatorPeaksInWindows(sliders)
   && (sliders[2] ?? 0) >= REGULATOR_PRECISE_TARGET[2];
 
 const puzzleMistakeEffects = (puzzle: string): Level1Effect[] => [
@@ -367,11 +396,12 @@ export function getRegulatorSignal(state: Level1State): {
   candidate: boolean;
 } {
   const [balance = 0, frequency = 0, damping = 0] = state.regulatorPuzzle.sliders;
+  const candidate = matchesRegulatorTarget(state.regulatorPuzzle.sliders, REGULATOR_PRECISE_TARGET);
   return {
-    frequency: frequency < 2 - REGULATOR_ALIGNMENT_TOLERANCE ? "high" : frequency > 2 + REGULATOR_ALIGNMENT_TOLERANCE ? "low" : "aligned",
-    balance: balance < 2 - REGULATOR_ALIGNMENT_TOLERANCE ? "leading" : balance > 2 + REGULATOR_ALIGNMENT_TOLERANCE ? "trailing" : "aligned",
+    frequency: candidate ? "aligned" : frequency < 2 - REGULATOR_ALIGNMENT_TOLERANCE ? "high" : frequency > 2 + REGULATOR_ALIGNMENT_TOLERANCE ? "low" : "aligned",
+    balance: candidate ? "aligned" : balance < 2 - REGULATOR_ALIGNMENT_TOLERANCE ? "leading" : balance > 2 + REGULATOR_ALIGNMENT_TOLERANCE ? "trailing" : "aligned",
     ringing: damping >= REGULATOR_PRECISE_TARGET[2] ? "clear" : "present",
-    candidate: matchesRegulatorTarget(state.regulatorPuzzle.sliders, REGULATOR_PRECISE_TARGET)
+    candidate
   };
 }
 
@@ -678,7 +708,7 @@ export function applyLevel1Action(state: Level1State, action: Level1Action): Lev
       return finish(state, { ...state, spiral: { ...state.spiral, busRead: true } }, [{ type: "event", code: "BUS_READ", text: "BUS LOAD SAMPLE CAPTURED" }]);
     }
     case "TOUCH_BREAKER": {
-      if (!state.spiral.busRead) return reject(state, "Read the energized bus before checking breaker housings.");
+      if (!state.junctionPuzzle.decoded) return reject(state, "Isolate the abnormal junction return before checking breaker housings.");
       if (!Number.isInteger(action.index) || action.index < 0 || action.index >= state.breakerPuzzle.positions.length) return reject(state, "Unknown breaker.");
       const touched = [...state.breakerPuzzle.touched];
       touched[action.index] = true;

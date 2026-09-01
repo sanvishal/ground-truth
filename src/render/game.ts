@@ -10,6 +10,7 @@ import {
   TextStyle,
   Texture
 } from "pixi.js";
+import "pixi.js/prepare";
 import { DialogueAudio } from "../audio/dialogue-audio";
 import { Level1SceneAudio } from "../audio/level1-scene-audio";
 import { DialogueEngine } from "../dialogue/engine";
@@ -23,12 +24,13 @@ import { Level2Session } from "../runtime/level2-session";
 import { readLevel2Checkpoint, writeLevel2Checkpoint } from "../runtime/level2-checkpoint";
 import {
   clearLevel1Checkpoint,
-  readDialogueCheckpoint,
+  readDialogueTranscript,
   readLevel1Checkpoint,
   writeDialogueCheckpoint,
+  writeDialogueTranscript,
   writeLevel1Checkpoint
 } from "../runtime/level1-checkpoint";
-import { getJunctionFingerprint, getRegulatorSignal, LEVEL1_MAX_RESERVE, type Level1Action, type Level1State } from "../sim/level1";
+import { LEVEL1_MAX_RESERVE, type Level1Action, type Level1State } from "../sim/level1";
 import { isAutoJitterWord, isAutoWaveWord, jitterOffset } from "./text-effects";
 import { createLevel1CompositorProof, type Level1CompositorProof } from "./level1-compositor";
 import { SparkPixelateFilter } from "./spark-pixelate-filter";
@@ -318,29 +320,6 @@ const UI_ICON = {
   WARNING: 10,
   CONNECT: 11
 } as const;
-
-const resumeReminder = (state: Level1State): string => {
-  if (state.phase === "foundation") return state.foundation.openingResponseRelayed
-    ? "The relay is back. I was waiting for your answer about diagnostics."
-    : "The relay is back. I still cannot see your compartment. I need your eyes.";
-  if (state.phase === "wire_restore") {
-    if (state.wires.measuredPorts.length < 5) return "The relay is back. I still need the five terminal readings.";
-    if (!state.wires.solved) return "The relay is back. I have the terminal readings. The emergency bus is still open.";
-  }
-  if (!state.spiral.micReseated) return "The relay is back. I still have no local microphone contact.";
-  if (!state.spiral.listened) return "The relay is back. The microphone contact holds, but I still have no carrier.";
-  if (!state.junctionPuzzle.decoded) return `The relay is back. I still hear one ${getJunctionFingerprint(state)} return.`;
-  if (!state.spiral.busRead) return "The relay is back. The abnormal return is gone. I still need to correlate the bus signatures.";
-  if (!state.spiral.breaker4Pulled) return "The relay is back. The unmatched fault return is still connected.";
-  if (state.spiral.regulator !== "precise") {
-    const signal = getRegulatorSignal(state);
-    return state.regulatorPuzzle.adjusted
-      ? `The relay is back. My last carrier reading was frequency ${signal.frequency}, phase ${signal.balance}, ringing ${signal.ringing}.`
-      : "The relay is back. The regulator load is clean, but its harmonics are still unstable.";
-  }
-  if (!state.door.diverted) return "The relay is back. The stable bus has enough surplus for the door motor.";
-  return "The relay is back. The door feed is live. I still need your clearance confirmation.";
-};
 
 function bitmap(value: string, size: number, color = C.ink, family = UI_FONT): BitmapText {
   return new BitmapText({
@@ -710,7 +689,7 @@ export async function createGroundtruthGame(
   };
   window.addEventListener("pointerdown", unlockSceneAudio, { once: true, capture: true });
   window.addEventListener("keydown", unlockSceneAudio, { once: true, capture: true });
-  const totalTextures = 27 + COLD_OPEN_PANELS.length;
+  const totalTextures = 33 + COLD_OPEN_PANELS.length;
   let loadedTextures = 0;
   const loadTexture = async (path: string, label: string): Promise<Texture> => {
     const texture = await Assets.load<Texture>(path);
@@ -721,7 +700,7 @@ export async function createGroundtruthGame(
     });
     return texture;
   };
-  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
+  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
     loadTexture("/assets/art/example-bridge.png", "LOADING SHIP INTERIOR"),
     loadTexture("/assets/art/demi-dialogue-spritesheet.png", "LOADING DEMI"),
     loadTexture("/assets/art/kore-dialogue-spritesheet.png", "LOADING KORE"),
@@ -738,6 +717,11 @@ export async function createGroundtruthGame(
     loadTexture("/assets/art/ui/panel-frames/reinforced-a.png", "LOADING REPAIR PANELS"),
     loadTexture("/assets/art/ui/panel-frames/sealed-c.png", "LOADING REPAIR PANELS"),
     loadTexture("/assets/art/ui/panel-nameplates/panel-nameplates-v3.png", "LABELING SYSTEMS"),
+    loadTexture("/assets/art/ui/panel-nameplates/level2-panel-nameplates-v1.png", "LABELING GREENHOUSE SYSTEMS"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-pressure-hardware-v1.png", "ASSEMBLING PRESSURE CONTROL"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-pressure-wheel-v2.png", "ASSEMBLING PRESSURE CONTROL"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-thermal-hardware-v1.png", "ASSEMBLING THERMAL COUPLING"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-thermal-pipes-v1.png", "ROUTING THERMAL LINES"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-heads-v2.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-connector-states-v3.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-cables-v2.png", "LOADING BUS LOOM"),
@@ -765,6 +749,11 @@ export async function createGroundtruthGame(
   panelReinforcedTexture.source.scaleMode = "nearest";
   panelSealedTexture.source.scaleMode = "nearest";
   panelNameplatesTexture.source.scaleMode = "nearest";
+  level2PanelNameplatesTexture.source.scaleMode = "nearest";
+  level2PressureHardwareTexture.source.scaleMode = "nearest";
+  level2PressureWheelTexture.source.scaleMode = "nearest";
+  level2ThermalHardwareTexture.source.scaleMode = "nearest";
+  level2ThermalPipesTexture.source.scaleMode = "nearest";
   busLoomHeadsTexture.source.scaleMode = "nearest";
   busLoomConnectorStatesTexture.source.scaleMode = "nearest";
   busLoomCablesTexture.source.scaleMode = "nearest";
@@ -787,7 +776,41 @@ export async function createGroundtruthGame(
     continuitySequencer: new Texture({ source: panelNameplatesTexture.source, frame: new Rectangle(574, 280, 508, 134) }),
     junctionRouter: new Texture({ source: panelNameplatesTexture.source, frame: new Rectangle(1128, 290, 346, 118) }),
     harmonicRegulator: new Texture({ source: panelNameplatesTexture.source, frame: new Rectangle(333, 525, 355, 196) }),
-    emergencyBreakerBank: new Texture({ source: panelNameplatesTexture.source, frame: new Rectangle(738, 526, 392, 194) })
+    emergencyBreakerBank: new Texture({ source: panelNameplatesTexture.source, frame: new Rectangle(738, 526, 392, 194) }),
+    pressureControl: new Texture({ source: level2PanelNameplatesTexture.source, frame: new Rectangle(20, 190, 590, 220) }),
+    thermalCoupling: new Texture({ source: level2PanelNameplatesTexture.source, frame: new Rectangle(600, 190, 580, 220) }),
+    ignitionSequencer: new Texture({ source: level2PanelNameplatesTexture.source, frame: new Rectangle(1175, 190, 585, 220) }),
+    waterReclamation: new Texture({ source: level2PanelNameplatesTexture.source, frame: new Rectangle(250, 490, 630, 230) }),
+    transferPod: new Texture({ source: level2PanelNameplatesTexture.source, frame: new Rectangle(910, 490, 580, 230) })
+  };
+  const level2PanelHardware = {
+    pressureCrt: new Texture({ source: level2PressureHardwareTexture.source, frame: new Rectangle(45, 100, 1445, 280) }),
+    pressureWheel: level2PressureWheelTexture,
+    thermalSocket: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(70, 112, 202, 206) }),
+    thermalDisconnected: {
+      red: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(369, 133, 255, 173) }),
+      blue: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(672, 134, 246, 173) }),
+      green: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(967, 134, 293, 173) }),
+      amber: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(1260, 131, 242, 176) })
+    },
+    thermalConnected: {
+      red: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(28, 391, 266, 233) }),
+      blue: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(397, 391, 274, 233) }),
+      green: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(786, 391, 279, 231) }),
+      amber: new Texture({ source: level2ThermalHardwareTexture.source, frame: new Rectangle(1173, 390, 283, 232) })
+    },
+    thermalLed: {
+      red: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(899, 346, 101, 93) }),
+      blue: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(1055, 346, 95, 96) }),
+      green: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(1205, 345, 98, 97) }),
+      amber: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(1362, 345, 99, 94) })
+    },
+    thermalPipe: {
+      red: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 510, 1413, 66) }),
+      blue: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 606, 1411, 58) }),
+      green: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 702, 1411, 54) }),
+      amber: new Texture({ source: level2ThermalPipesTexture.source, frame: new Rectangle(62, 791, 1412, 59) })
+    }
   };
   const panelHardware = {
     busConnectorHeads: {
@@ -1178,7 +1201,7 @@ export async function createGroundtruthGame(
   };
 
   let snapshot = dialogue.snapshot();
-  const transcript: Array<{ id: number; speaker: Speaker; body: string }> = [];
+  const transcript: Array<{ speaker: Speaker; body: string }> = readDialogueTranscript(localStorage);
   const capturedMessageIds = new Set<number>();
   let savedDialogueKey = "";
   const captureTranscript = (next: DialogueSnapshot) => {
@@ -1188,10 +1211,11 @@ export async function createGroundtruthGame(
         if (message.transient) continue;
         if (capturedMessageIds.has(message.id)) continue;
         capturedMessageIds.add(message.id);
-        transcript.push({ id: message.id, speaker, body: message.body });
+        const previous = transcript.at(-1);
+        if (previous?.speaker !== speaker || previous.body !== message.body) transcript.push({ speaker, body: message.body });
       }
     }
-    transcript.sort((a, b) => a.id - b.id);
+    writeDialogueTranscript(localStorage, transcript);
   };
   dialogue.subscribe((next) => {
     captureTranscript(next);
@@ -1257,8 +1281,6 @@ export async function createGroundtruthGame(
     && restoredCheckpoint.phase !== "complete"
     && restoredCheckpoint.phase !== "failure"
   );
-  let shouldResumeCheckpoint = hasResumableCheckpoint;
-  const resumableDialogue = hasResumableCheckpoint ? readDialogueCheckpoint(localStorage) : null;
   const unsubscribeLevel1 = level1.subscribe((transition) => {
     if (!transition.ok) {
       addEvent("ACTION REJECTED", transition.error);
@@ -1365,6 +1387,13 @@ export async function createGroundtruthGame(
             react("The motor indicator is dark.");
           }
           break;
+        case "door_exit": {
+          if (!state.door.opened) break;
+          const nextQuery = new URLSearchParams({ level: "2" });
+          if (isDev) nextQuery.set("dev", "1");
+          window.location.assign(`${window.location.origin}${window.location.pathname}?${nextQuery.toString()}`);
+          break;
+        }
         case "window":
           reactScene("The outer pane is webbed with cracks... one more hit, and the inner seal is all we have.");
           break;
@@ -1467,9 +1496,13 @@ export async function createGroundtruthGame(
       standard: panelStandardTexture,
       reinforced: panelReinforcedTexture,
       sealed: panelSealedTexture
-    });
+    }, panelNameplates, level2PanelHardware);
     gameLayer.addChild(level2InteractionLayer.container);
     level2InteractionLayer.refresh();
+    // Upload the panel atlases, rope geometry, and shaders while the scene is
+    // still loading. Otherwise the thermal panel pays that GPU setup cost on
+    // its first visible frame and appears to freeze the running game.
+    await app.renderer.prepare.upload(level2InteractionLayer.container);
   }
 
   const overlay = new Container();
@@ -1573,7 +1606,12 @@ export async function createGroundtruthGame(
 
   const formatSceneLog = () => {
     const sections: string[] = [];
-    if (events.length) sections.push(`SHIP EVENTS\n${[...events].reverse().join("\n")}`);
+    const shipRecord = useLevel1Scene
+      ? level1.snapshot().history
+        .filter((entry) => !["CREW_RESPONSE_DETECTED", "OPENING_RESPONSE_RELAYED", "MESSAGE_RELAYED", "AUX_SPENT", "HARMONICS_CHECKED"].includes(entry.code))
+        .map((entry) => entry.label)
+      : level2.snapshot().history.map((entry) => entry.replaceAll("_", " "));
+    if (shipRecord.length) sections.push(`SHIP RECORD\n${shipRecord.join("\n")}`);
     const dialogueRecord = formatTranscript();
     if (dialogueRecord) sections.push(`DIALOGUE\n${dialogueRecord}`);
     return sections.join("\n\n");
@@ -1711,7 +1749,7 @@ export async function createGroundtruthGame(
   stateText.position.set(W / 2, 294);
   let copyStatusTimeout: number | undefined;
   const connectionUrl = directLevel2 ? `${window.location.origin}${window.location.pathname}?level=2` : window.location.href;
-  const connectionPrompt = `Open ${connectionUrl} and connect to GROUNDTRUTH as KORE. Use the page's WebMCP tools to call connect. You handle diagnostics and instructions; I will perform physical actions as Demi.`;
+  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Use at most one metered diagnostic, sensing, or manual tool per player message. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
   const writeConnectionPrompt = () => navigator.clipboard.writeText(connectionPrompt);
   const copyPrompt = () => {
     void writeConnectionPrompt().then(() => {
@@ -1748,12 +1786,17 @@ export async function createGroundtruthGame(
   hintClose.position.set(copyPromptButton.x + copyPromptLabel.width + 7, 0);
   connectionHint.addChild(hintLead, copyPromptButton, hintClose);
   connectionHint.position.set(Math.round((W - connectionHint.width) / 2), 351);
-  connectionPanel.addChild(connectionFrame, title, subtitle, stateText, connectionHint);
+  const reconnectHint = bitmap('IN YOUR AGENT CHAT, SEND "RECONNECT" TO RESTORE KORE.', 12, C.amber);
+  reconnectHint.anchor.set(0.5);
+  reconnectHint.position.set(W / 2, 351);
+  reconnectHint.visible = false;
+  connectionPanel.addChild(connectionFrame, title, subtitle, stateText, connectionHint, reconnectHint);
   startup.addChild(connectionShade, connectionPanel);
   const connectionPanelTransition = new PanelApertureTransition(connectionPanel, W / 2, H / 2);
 
-  const showConnectionOverlay = (showCopyPrompt = true) => {
+  const showConnectionOverlay = (showCopyPrompt = true, showReconnectInstruction = false) => {
     connectionHint.visible = showCopyPrompt;
+    reconnectHint.visible = showReconnectInstruction;
     startup.visible = true;
     startup.eventMode = "static";
     connectionPanelTransition.open();
@@ -1776,12 +1819,10 @@ export async function createGroundtruthGame(
     waitingForDemiTypingToFinish = true;
     setKoreIndicator("hidden");
     onDemiFirstLineComplete = () => {
-      if (connected) return;
+      void tools.activateGameplay?.();
       connectionOverlayDelay = window.setTimeout(() => {
         connectionOverlayDelay = undefined;
-        if (connected) return;
-        showConnectionOverlay();
-        void registerToolsAfterColdOpen();
+        showConnectionOverlay(!connected);
       }, 2000);
     };
     dialogue.echoDemi(DEMI_WAKE_LINE);
@@ -1832,7 +1873,7 @@ export async function createGroundtruthGame(
 
   let tools: ToolRegistration = { available: false, activeTools: () => [], dispose() {} };
   let toolsRegistrationStarted = false;
-  const registerToolsAfterColdOpen = async () => {
+  const registerTools = async (gameplayReady = true) => {
     if (toolsRegistrationStarted) return;
     toolsRegistrationStarted = true;
     try {
@@ -1852,10 +1893,16 @@ export async function createGroundtruthGame(
           onProcessing: setKoreProcessing
         }, { requireHandshake: true });
       } else tools = await registerLevel1Tools(document.modelContext, dialogue, level1, {
+        onStandbyConnected: () => {
+          connected = true;
+          stateText.text = "KORE CONNECTED. WAITING FOR DEMI...";
+          connectionHint.visible = false;
+        },
         onConnected: () => {
           connected = true;
           setKoreIndicator("hidden");
-          stateText.text = "KORE CONNECTED";
+          stateText.text = "KORE CONNECTED. WAITING FOR TRANSMISSION...";
+          connectionHint.visible = false;
           if (!level1.snapshot().foundation.wakeResponseHeard) {
             level1.dispatch({ type: "DEMI_WAKE_RESPONSE", message: DEMI_WAKE_LINE });
           }
@@ -1863,28 +1910,14 @@ export async function createGroundtruthGame(
           drawReserve();
           compositor?.setStage(level1.snapshot().lightingStage);
           interactionLayer?.refresh();
-          enterSceneWithDither(() => {
-            if (!shouldResumeCheckpoint) return;
-            if (resumableDialogue) {
-              dialogue.restoreMessage(
-                resumableDialogue.speaker,
-                resumableDialogue.body,
-                resumableDialogue.pageIndex,
-                performance.now(),
-                resumableDialogue.origin
-              );
-              if (resumableDialogue.speaker === "KORE") setKoreIndicator("waiting");
-            } else {
-              dialogue.receiveKore(resumeReminder(level1.snapshot()), performance.now(), "system");
-              waitingForKoreTypingToFinish = true;
-            }
-            addEvent("RUN RESUMED", level1.snapshot().phase.toUpperCase());
-          });
+        },
+        onTransmissionStarted: () => {
+          enterSceneWithDither();
         },
         onEvent: addEvent,
         onWarning: (message) => addEvent("AUX WARNING", message),
         onProcessing: setKoreProcessing
-      }, { requireHandshake: true });
+      }, { requireHandshake: true, gameplayReady });
     } catch (error) {
       stateText.text = "WEBMCP REGISTRATION FAILED";
       stateText.tint = C.danger;
@@ -2006,7 +2039,8 @@ export async function createGroundtruthGame(
   );
 
   const startNewGame = () => {
-    shouldResumeCheckpoint = false;
+    transcript.length = 0;
+    capturedMessageIds.clear();
     level1.reset();
     clearLevel1Checkpoint(localStorage);
     playColdOpen(beginWakeBeat);
@@ -2016,8 +2050,8 @@ export async function createGroundtruthGame(
     const resumeButton = makeMenuButton("RESUME", () => {
       transitionFromMenu(() => {
         enterScene();
-        showConnectionOverlay(false);
-        void registerToolsAfterColdOpen();
+        showConnectionOverlay(false, true);
+        void tools.activateGameplay?.();
       });
     });
     const newGameButton = makeMenuButton("NEW GAME", () => {
@@ -2041,6 +2075,8 @@ export async function createGroundtruthGame(
   menu.addChild(howToPlayButton, menuHelp);
   root.addChild(menu);
 
+  if (!directLevel2) void registerTools(false);
+
   screenTransition = new ScreenDitherTransition(W, H, 800, C.black);
   root.addChild(screenTransition.container);
 
@@ -2048,8 +2084,8 @@ export async function createGroundtruthGame(
     menu.visible = false;
     menu.eventMode = "none";
     enterScene();
-    showConnectionOverlay(!hasResumableLevel2Checkpoint);
-    void registerToolsAfterColdOpen();
+    showConnectionOverlay(!hasResumableLevel2Checkpoint, hasResumableLevel2Checkpoint);
+    void registerTools();
   }
 
   const advance = () => {
@@ -2114,7 +2150,7 @@ export async function createGroundtruthGame(
     const now = performance.now();
     const delta = Math.min(100, now - last);
     last = now;
-    dialogue.tick(delta);
+    if (!startup.visible) dialogue.tick(delta);
     coldOpen.update(delta);
     if (menu.visible) menuStarfield.update(delta);
     connectionPanelTransition.update(delta);

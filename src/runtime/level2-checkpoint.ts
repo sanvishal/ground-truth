@@ -36,9 +36,12 @@ export function readLevel2Checkpoint(storage: CheckpointStorage): Level2State | 
         ...base.ignition,
         ...state.ignition,
         panelOpen: false,
+        running: false,
+        runElapsedMs: 0,
+        charge: state.ignition?.solved ? state.ignition.charge ?? base.ignition.charge : 0,
         keys: Array.isArray(state.ignition?.keys) && state.ignition.keys.length === 4 ? [...state.ignition.keys] as Level2State["ignition"]["keys"] : base.ignition.keys,
         pattern: Array.isArray(state.ignition?.pattern) ? [...state.ignition.pattern] : base.ignition.pattern,
-        results: Array.isArray(state.ignition?.results) ? [...state.ignition.results] : base.ignition.results
+        results: state.ignition?.solved && Array.isArray(state.ignition.results) ? [...state.ignition.results] : base.ignition.results
       },
       plant: { ...base.plant, ...state.plant },
       pod: { ...base.pod, ...state.pod },

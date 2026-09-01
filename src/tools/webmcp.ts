@@ -19,7 +19,9 @@ import {
 const EMPTY = Object.freeze({ type: "object", properties: {}, additionalProperties: false });
 
 interface Hooks {
+  onStandbyConnected?: () => void;
   onConnected: () => void;
+  onTransmissionStarted?: () => void;
   onEvent: (label: string, detail?: string) => void;
   onWarning: (message: string) => void;
   onProcessing: (active: boolean) => void;
@@ -28,6 +30,7 @@ interface Hooks {
 export interface ToolRegistration {
   available: boolean;
   activeTools(): string[];
+  activateGameplay?(): Promise<void>;
   dispose(): void;
 }
 
@@ -74,16 +77,13 @@ const regulatorGuidance = (state: Level1State): string => {
   return "KORE's carrier frequency and phase now hold, but ringing remains. Explain that the extra ripples are the remaining fault. Ask Demi to change the remaining local control slowly until the ripples clear, then report back. Do not identify a control or claim to see the panel.";
 };
 
-const desiredTools = (state: Level1State, relaySessionConnected: boolean): ToolKey[] => {
-  if (!relaySessionConnected) return ["connect"];
+const desiredTools = (state: Level1State, relaySessionConnected: boolean, gameplayReady: boolean): ToolKey[] => {
+  if (!relaySessionConnected || !gameplayReady) return ["connect"];
   if (state.phase === "complete" || state.phase === "failure") return [];
-  const keys: ToolKey[] = ["signal_processing", "transmit", "self_report", "read_manual"];
-  if (state.spiral.micReseated && !state.spiral.listened && affordable(state, TOOL_COST.listen)) keys.push("listen");
-  const canCheckHarmonics = state.spiral.breaker4Pulled && state.spiral.junction === "clean" && state.spiral.regulator !== "precise" && state.regulatorPuzzle.adjusted;
-  if (canCheckHarmonics && !checkedAtCurrentPosition(state)) keys.push("check_harmonics");
-  if (state.phase === "spiral_repair" && state.spiral.listened && state.junctionPuzzle.decoded && !state.spiral.busRead && affordable(state, TOOL_COST.readBus)) keys.push("read_bus");
-  if (state.door.diverted && !state.door.opened && affordable(state, TOOL_COST.commitDoor)) keys.push("commit_door");
-  return keys;
+  // Keep the post-handshake surface stable. This avoids rapid unregister and
+  // re-register races in WebMCP hosts while each executor still validates
+  // availability against the current simulation state.
+  return ["signal_processing", "transmit", "self_report", "read_manual", "listen", "check_harmonics", "read_bus", "commit_door"];
 };
 
 const requireSpend = (session: Level1Session, amount: number, reason: string): void => {
@@ -96,7 +96,7 @@ export async function registerLevel1Tools(
   dialogue: DialogueEngine,
   session: Level1Session,
   hooks: Hooks,
-  options: { requireHandshake?: boolean } = {}
+  options: { requireHandshake?: boolean; gameplayReady?: boolean } = {}
 ): Promise<ToolRegistration> {
   if (!modelContext?.registerTool) return { available: false, activeTools: () => [], dispose() {} };
 
@@ -105,7 +105,23 @@ export async function registerLevel1Tools(
   let syncQueue = Promise.resolve();
   let meteredToolUsed = false;
   let audibleTransmitted = false;
+  let firstTransmissionStarted = false;
   let relaySessionConnected = options.requireHandshake ? false : session.snapshot().foundation.connected;
+  let gameplayReady = options.gameplayReady ?? true;
+  let gameplayConnectionAnnounced = false;
+
+  const establishGameplayConnection = async (): Promise<boolean> => {
+    if (!relaySessionConnected || !gameplayReady || gameplayConnectionAnnounced) return false;
+    const alreadyConnected = session.snapshot().foundation.connected;
+    if (!alreadyConnected) {
+      const transition = session.dispatch({ type: "CONNECT" });
+      if (!transition.ok) throw new Error(transition.error);
+    }
+    gameplayConnectionAnnounced = true;
+    hooks.onConnected();
+    await syncNow();
+    return alreadyConnected;
+  };
 
   const requireMeteredSpend = (amount: number, reason: string): void => {
     if (meteredToolUsed) {
@@ -118,19 +134,28 @@ export async function registerLevel1Tools(
   const specs = (): Record<ToolKey, ModelContextTool> => ({
     connect: {
       name: "connect",
-      description: "Connect KORE to Sanctuary's damaged local relay. Demi can then hear transmitted speech and begin physical inspection; this tool does not inspect the room for her.",
+      description: "Connect KORE to Sanctuary's damaged local relay. If Demi has not started the game, remain on standby without clicking or advancing the page. This tool never inspects the room for her.",
       inputSchema: EMPTY,
       async execute() {
-        const alreadyConnected = session.snapshot().foundation.connected;
-        if (!alreadyConnected) {
-          const transition = session.dispatch({ type: "CONNECT" });
-          if (!transition.ok) throw new Error(transition.error);
+        if (!relaySessionConnected) {
+          relaySessionConnected = true;
+          hooks.onStandbyConnected?.();
         }
-        relaySessionConnected = true;
-        hooks.onConnected();
-        await syncNow();
+        if (!gameplayReady) {
+          await syncNow();
+          return {
+            connected: true,
+            waitingForDemi: true,
+            nextAction: "Demi has not started the game yet. Wait for her to begin. Do not click, advance, or operate the page for her."
+          };
+        }
+        const alreadyConnected = await establishGameplayConnection();
         return alreadyConnected
-          ? { reconnected: true, phase: session.snapshot().phase, nextAction: "Resume from the saved checkpoint and wait for Demi's current observation." }
+          ? {
+              reconnected: true,
+              phase: session.snapshot().phase,
+              nextAction: "Call transmit now with one short audible reconnect acknowledgement. The relay panel remains locked until the first transmission starts. Then continue from Demi's current observation."
+            }
           : FOUNDATION_CONNECT_BRIEF;
       }
     },
@@ -167,7 +192,7 @@ export async function registerLevel1Tools(
           : state.spiral.breaker4Pulled && state.spiral.junction === "clean" && state.spiral.regulator === "precise" && !state.door.diverted
             ? "The stable bus now has enough surplus for the door motor, but KORE reads no motor draw yet. Relay that power constraint only. Do not name a local control."
           : state.door.diverted && !state.door.opened
-            ? "The door feed is live. Obtain Demi's direct observation that the doorway is clear, then ask for explicit confirmation before committing the motor. Do not spend AUX on another manual page."
+            ? "The door feed is live. If Demi's latest message directly reports that the doorway is clear and explicitly authorizes the commit, call commit_door now with doorway_clear. Otherwise ask once for both facts in one reply: inspect the doorway and, if it is clear, say 'doorway clear, commit.' Do not ask for another confirmation after that authorization. Do not spend AUX on another manual page."
           : null;
         return { processing: true, audible: false, auxCost: 0, nextAction };
       }
@@ -198,6 +223,10 @@ export async function registerLevel1Tools(
         const transition = session.dispatch({ type: first ? "RELAY_OPENING_RESPONSE" : "RELAY_MESSAGE", heardMessage: heard });
         if (!transition.ok) throw new Error(transition.error);
         audibleTransmitted = true;
+        if (!firstTransmissionStarted) {
+          firstTransmissionStarted = true;
+          hooks.onTransmissionStarted?.();
+        }
         hooks.onProcessing(false);
         if (heard && heard !== previousHeard) dialogue.echoDemi(heard, performance.now(), "transmit");
         dialogue.receiveKore(deliveredMessage, performance.now(), "transmit");
@@ -336,7 +365,7 @@ export async function registerLevel1Tools(
     },
     commit_door: {
       name: "commit_door",
-      description: "Irreversibly energize the blast-door motor after clean power diversion. Demi must directly inspect the doorway and can report clear, obstructed, or not observed before KORE commits. Costs 2 AUX.",
+      description: "Irreversibly energize the blast-door motor after clean power diversion. Demi must directly inspect the doorway and explicitly authorize the commit. Both facts may be provided together in one message, such as 'doorway clear, commit.' Do not ask for another confirmation after that. Costs 2 AUX.",
       inputSchema: {
         type: "object",
         properties: {
@@ -374,7 +403,7 @@ export async function registerLevel1Tools(
 
   const sync = async () => {
     if (disposed) return;
-    const wanted = new Set(desiredTools(session.snapshot(), relaySessionConnected));
+    const wanted = new Set(desiredTools(session.snapshot(), relaySessionConnected, gameplayReady));
     for (const [key, controller] of controllers) {
       if (wanted.has(key)) continue;
       controller.abort();
@@ -405,6 +434,11 @@ export async function registerLevel1Tools(
   return {
     available: true,
     activeTools: () => [...controllers.keys()],
+    async activateGameplay() {
+      gameplayReady = true;
+      await establishGameplayConnection();
+      await syncNow();
+    },
     dispose() {
       disposed = true;
       unsubscribe();

@@ -1,4 +1,4 @@
-import { BitmapText, BlurFilter, Container, Graphics, MeshRope, Point, Rectangle, Sprite } from "pixi.js";
+import { BitmapText, BlurFilter, Container, Graphics, MeshRope, Point, Polygon, Rectangle, Sprite } from "pixi.js";
 import { UI_FONT } from "../fonts";
 import { LEVEL1_WIRES, type ContinuitySequence, type Level1State, type SignalGlyph, type WireId, type WirePort } from "../sim/level1";
 import { createLevel1PuzzleOverlays, type Level1PuzzleId } from "./level1-puzzle-overlays";
@@ -20,7 +20,8 @@ export type Level1InteractableId =
   | "steam_ceiling"
   | "bloodstreaks"
   | "ceiling_cable"
-  | "door_panel";
+  | "door_panel"
+  | "door_exit";
 
 export interface Level1InteractionHandlers {
   panelOpened(): void;
@@ -59,6 +60,7 @@ const ZONES: ReadonlyArray<{ id: Level1InteractableId; label: string; box: Recta
   { id: "regulator", label: "HARMONIC REGULATOR", box: new Rectangle(368, 213, 126, 65) },
   { id: "breaker_bank", label: "BREAKERS", box: new Rectangle(648, 86, 72, 144) },
   { id: "door_panel", label: "DOOR FEED", box: new Rectangle(900, 143, 38, 70) },
+  { id: "door_exit", label: "OPEN DOORWAY", box: new Rectangle(794, 77, 135, 215) },
   { id: "window", label: "CRACKED VIEWPORT", box: new Rectangle(164, 48, 432, 154) },
   { id: "steam_left", label: "LEFT PIPE SEAM", box: new Rectangle(5, 202, 36, 38) },
   { id: "steam_console", label: "CONSOLE PIPE", box: new Rectangle(593, 217, 34, 38) },
@@ -81,6 +83,17 @@ const NESTED_ZONE_EXCLUSIONS: Partial<Record<Level1InteractableId, readonly Leve
   junction_board: ["breaker_bank"]
 };
 
+const DOOR_EXIT_SHAPE = [
+  812, 77,
+  911, 77,
+  929, 95,
+  929, 274,
+  911, 292,
+  812, 292,
+  794, 274,
+  794, 95
+] as const;
+
 export function createLevel1InteractionLayer(
   handlers: Level1InteractionHandlers,
   dev = false,
@@ -93,7 +106,7 @@ export function createLevel1InteractionLayer(
   const mistakeSparks = createPanelMistakeSparks();
   const outlines: Graphics[] = [];
   const shines: Array<{ node: Container; zone: Rectangle; active: boolean; progress: number }> = [];
-  const zoneViews: Array<{ id: Level1InteractableId; target: Container; shine: Container; shineEntry: { active: boolean } }> = [];
+  const zoneViews: Array<{ id: Level1InteractableId; target: Container; outline: Graphics; shine: Container; shineEntry: { active: boolean; progress: number } }> = [];
   let revealHeld = false;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   let openWirePanel = () => handlers.inspect("wire_panel");
@@ -125,28 +138,36 @@ export function createLevel1InteractionLayer(
 
   for (const zone of ZONES) {
     const isSceneObservation = SCENE_OBSERVATION_IDS.has(zone.id);
+    const isDoorExit = zone.id === "door_exit";
     const target = new Container();
     target.eventMode = "static";
     target.cursor = "pointer";
     const exclusions = (NESTED_ZONE_EXCLUSIONS[zone.id] ?? [])
       .map((id) => ZONES.find((candidate) => candidate.id === id)?.box)
       .filter((box): box is Rectangle => Boolean(box));
-    target.hitArea = {
-      contains: (x: number, y: number) => zone.box.contains(x, y) && !exclusions.some((box) => box.contains(x, y))
-    };
+    target.hitArea = isDoorExit
+      ? new Polygon([...DOOR_EXIT_SHAPE])
+      : {
+          contains: (x: number, y: number) => zone.box.contains(x, y) && !exclusions.some((box) => box.contains(x, y))
+        };
     target.zIndex = 1_000_000 - zone.box.width * zone.box.height;
-    const outline = new Graphics()
-      .roundRect(zone.box.x, zone.box.y, zone.box.width, zone.box.height, 2)
-      .stroke({ color: 0xe2a348, width: 1, alpha: 0.9 });
+    const outline = new Graphics();
+    if (isDoorExit) outline.poly([...DOOR_EXIT_SHAPE]).stroke({ color: 0x83d1a1, width: 2, alpha: 0.9 });
+    else outline.roundRect(zone.box.x, zone.box.y, zone.box.width, zone.box.height, 2).stroke({ color: 0xe2a348, width: 1, alpha: 0.9 });
     outline.alpha = !isSceneObservation && dev ? 0.34 : 0;
-    if (!isSceneObservation) outlines.push(outline);
-    const shineMask = new Graphics().roundRect(zone.box.x, zone.box.y, zone.box.width, zone.box.height, 2).fill(0xffffff);
+    if (!isSceneObservation && !isDoorExit) outlines.push(outline);
+    const shineMask = new Graphics();
+    if (isDoorExit) shineMask.poly([...DOOR_EXIT_SHAPE]).fill(0xffffff);
+    else shineMask.roundRect(zone.box.x, zone.box.y, zone.box.width, zone.box.height, 2).fill(0xffffff);
     shineMask.eventMode = "none";
     const shine = new Container();
+    const shineColor = isDoorExit ? 0x83d1a1 : 0xe2a348;
+    const shineHot = isDoorExit ? 0xb8f5ca : 0xffc96f;
+    const shineCore = isDoorExit ? 0xe0ffe8 : 0xffe2ad;
     shine.addChild(
-      new Graphics().poly([-38, 0, 22, 0, 64, zone.box.height, 4, zone.box.height]).fill({ color: 0xe2a348, alpha: 0.07 }),
-      new Graphics().poly([-15, 0, 18, 0, 55, zone.box.height, 22, zone.box.height]).fill({ color: 0xffc96f, alpha: 0.1 }),
-      new Graphics().poly([2, 0, 14, 0, 48, zone.box.height, 36, zone.box.height]).fill({ color: 0xffe2ad, alpha: 0.13 })
+      new Graphics().poly([-38, 0, 22, 0, 64, zone.box.height, 4, zone.box.height]).fill({ color: shineColor, alpha: isDoorExit ? 0.11 : 0.07 }),
+      new Graphics().poly([-15, 0, 18, 0, 55, zone.box.height, 22, zone.box.height]).fill({ color: shineHot, alpha: isDoorExit ? 0.15 : 0.1 }),
+      new Graphics().poly([2, 0, 14, 0, 48, zone.box.height, 36, zone.box.height]).fill({ color: shineCore, alpha: isDoorExit ? 0.18 : 0.13 })
     );
     shine.position.set(zone.box.x - 80, zone.box.y);
     shine.mask = shineMask;
@@ -154,7 +175,7 @@ export function createLevel1InteractionLayer(
     shine.visible = false;
     const shineEntry = { node: shine, zone: zone.box, active: false, progress: 0 };
     shines.push(shineEntry);
-    zoneViews.push({ id: zone.id, target, shine, shineEntry });
+    zoneViews.push({ id: zone.id, target, outline, shine, shineEntry });
     target.addChild(outline, shineMask, shine);
 
     if (dev && !isSceneObservation) {
@@ -179,6 +200,13 @@ export function createLevel1InteractionLayer(
     });
     target.on("pointerout", () => {
       if (isSceneObservation) return;
+      if (isDoorExit && handlers.getState().door.opened) {
+        outline.alpha = 0.72;
+        shineEntry.active = true;
+        shine.visible = true;
+        tooltip.visible = false;
+        return;
+      }
       outline.alpha = revealHeld || dev ? 0.34 : 0;
       shineEntry.active = false;
       shine.visible = false;
@@ -197,10 +225,17 @@ export function createLevel1InteractionLayer(
   const syncZoneAvailability = () => {
     const state = handlers.getState();
     for (const view of zoneViews) {
-      const available = view.id !== "bloodstreaks" || state.wires.solved;
+      const available = view.id === "door_exit"
+        ? state.door.opened
+        : view.id !== "bloodstreaks" || state.wires.solved;
       view.target.visible = available;
       view.target.eventMode = available ? "static" : "none";
-      if (!available) {
+      if (view.id === "door_exit" && available) {
+        view.outline.alpha = 0.72;
+        view.shineEntry.active = true;
+        view.shine.visible = true;
+      } else if (!available) {
+        view.outline.alpha = 0;
         view.shineEntry.active = false;
         view.shine.visible = false;
       }

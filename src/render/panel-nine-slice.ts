@@ -13,6 +13,11 @@ export interface PanelNameplateTextures {
   junctionRouter: Texture;
   harmonicRegulator: Texture;
   emergencyBreakerBank: Texture;
+  pressureControl: Texture;
+  thermalCoupling: Texture;
+  ignitionSequencer: Texture;
+  waterReclamation: Texture;
+  transferPod: Texture;
 }
 
 export interface PanelHardwareTextures {

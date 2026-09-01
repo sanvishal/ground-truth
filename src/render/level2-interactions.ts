@@ -2,8 +2,8 @@ import { BitmapText, BlurFilter, Container, Graphics, Rectangle } from "pixi.js"
 import { UI_FONT } from "../fonts";
 import type { Level2Action, Level2State } from "../sim/level2";
 import { canTransferSapling, isPressureAbnormal, isTemperatureAbnormal } from "../sim/level2";
-import { createLevel2PuzzleOverlays, type Level2PuzzleId } from "./level2-puzzle-overlays";
-import type { PanelFrameTextures } from "./panel-nine-slice";
+import { createLevel2PuzzleOverlays, type Level2PanelHardwareTextures, type Level2PuzzleId } from "./level2-puzzle-overlays";
+import type { PanelFrameTextures, PanelNameplateTextures } from "./panel-nine-slice";
 
 export type Level2InteractableId =
   | "bloodstreaks"
@@ -62,7 +62,9 @@ const ZONES: readonly ZoneDefinition[] = [
 export function createLevel2InteractionLayer(
   handlers: Level2InteractionHandlers,
   dev: boolean,
-  panelFrames: PanelFrameTextures
+  panelFrames: PanelFrameTextures,
+  panelNameplates: PanelNameplateTextures,
+  panelHardware: Level2PanelHardwareTextures
 ): Level2InteractionLayer {
   const container = new Container();
   container.sortableChildren = true;
@@ -99,7 +101,7 @@ export function createLevel2InteractionLayer(
     panelClosed: handlers.panelClosed,
     controlStep: handlers.controlStep,
     mistake: handlers.mistake
-  }, panelFrames);
+  }, panelFrames, panelNameplates, panelHardware);
   const activeViews: Array<{ zone: ZoneDefinition; target: Container; outline: Graphics; shine: Container; progress: number; active: boolean }> = [];
   let refreshAccumulator = 0;
   let warningClock = 0;
