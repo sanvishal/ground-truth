@@ -440,57 +440,6 @@ function makeForeground(texture?: Texture): Container {
   return layer;
 }
 
-function makeWindowCracks(): Graphics {
-  const cracks = new Graphics();
-  type CrackPath = ReadonlyArray<readonly [number, number]>;
-  const paths: readonly CrackPath[] = [
-    // One readable impact web, intentionally off-centre.
-    [[499, 145], [493, 138], [486, 132], [478, 125], [469, 116], [461, 108]],
-    [[499, 145], [499, 136], [501, 126], [506, 116], [510, 106], [513, 98]],
-    [[499, 145], [507, 138], [514, 130], [522, 124], [530, 119]],
-    [[499, 145], [509, 143], [520, 144], [532, 146], [544, 149]],
-    [[499, 145], [507, 152], [515, 160], [522, 170], [531, 181], [541, 194]],
-    [[499, 145], [499, 154], [498, 164], [500, 176], [499, 188]],
-    [[499, 145], [492, 145], [482, 147], [471, 151], [459, 156], [448, 162]],
-    [[499, 145], [493, 152], [487, 160], [480, 171], [472, 184]],
-
-    // Irregular ring fragments and small branches keep the web from reading as
-    // a clean icon or mathematically perfect radial burst.
-    [[487, 139], [490, 132], [498, 129], [506, 132]],
-    [[506, 132], [512, 138], [511, 148], [507, 155]],
-    [[507, 155], [500, 160], [493, 157], [487, 151], [487, 139]],
-    [[486, 132], [483, 124], [478, 119]],
-    [[515, 160], [523, 158], [531, 159], [539, 163]],
-    [[480, 171], [472, 169], [466, 164]],
-    [[522, 124], [525, 115], [531, 109]],
-
-    // Short corner-origin fractures. They stop well before reaching the impact.
-    [[278, 99], [283, 106], [289, 111], [294, 118], [301, 125]],
-    [[289, 111], [286, 119], [287, 126]],
-    [[529, 99], [525, 106], [520, 112], [517, 120], [514, 127]],
-    [[520, 112], [526, 116], [531, 122]],
-    [[247, 196], [253, 193], [260, 189], [268, 184], [276, 181]],
-    [[260, 189], [259, 197], [263, 204]],
-    [[560, 197], [554, 201], [549, 207], [543, 212], [537, 218]],
-    [[549, 207], [555, 211], [559, 216]]
-  ];
-
-  const drawPaths = (offset: number, color: number, alpha: number, width: number) => {
-    for (const path of paths) {
-      cracks.moveTo(path[0][0] + offset, path[0][1] + offset);
-      for (let index = 1; index < path.length; index += 1) {
-        cracks.lineTo(path[index][0] + offset, path[index][1] + offset);
-      }
-    }
-    cracks.stroke({ color, alpha, width });
-  };
-
-  drawPaths(1, 0x010306, 0.72, 2);
-  drawPaths(0, 0xaab7ba, 0.62, 1);
-  cracks.circle(499, 145, 2).fill({ color: 0xd7dede, alpha: 0.72 });
-  return cracks;
-}
-
 interface TubeLightView {
   readonly settings: TubeLightSettings;
   readonly container: Container;
@@ -547,6 +496,7 @@ function roomTextureMask(texture?: Texture): Graphics | Sprite {
 export function createLevel1CompositorProof(
   roomTexture?: Texture,
   viewportMaskTexture?: Texture,
+  windowCracksTexture?: Texture,
   foregroundTexture?: Texture,
   asteroidSheetTexture?: Texture,
   getOutputPixelScale: () => number = () => 1,
@@ -572,7 +522,12 @@ export function createLevel1CompositorProof(
   }
   const tubeLightingFilter = new TubeLightFilter(LEVEL1_SCENE_WIDTH, LEVEL1_SCENE_HEIGHT);
   room.filters = [tubeLightingFilter];
-  const windowCracks = makeWindowCracks();
+  const windowCracks = windowCracksTexture ? new Sprite(windowCracksTexture) : new Container();
+  if (windowCracks instanceof Sprite) {
+    windowCracks.width = LEVEL1_SCENE_WIDTH;
+    windowCracks.height = LEVEL1_SCENE_HEIGHT;
+    windowCracks.roundPixels = true;
+  }
   const foreground = makeForeground(foregroundTexture);
   const steam = createLevel1SteamSystem(soundEvents.steamJetStart);
   const sparks = createLevel1SparkSystem(soundEvents.sparkBurst);

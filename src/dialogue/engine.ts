@@ -9,6 +9,7 @@ interface PendingReaction {
   source: ReactionSource;
   createdAt: number;
   autoAdvance: boolean;
+  holdMs?: number;
 }
 
 const cloneChannel = (channel: ChannelState): ChannelState => ({
@@ -29,6 +30,7 @@ export class DialogueEngine {
   private pendingReactions: PendingReaction[] = [];
   private autoAdvanceDemiMessageId: number | null = null;
   private autoAdvanceDemiRemainingMs = 0;
+  private autoAdvanceDemiDelayMs = 2000;
   private transientDemiActive = false;
   private transientDemiReturn: DialogueMessage | null = null;
   private channels: Record<Speaker, ChannelState> = {
@@ -105,6 +107,7 @@ export class DialogueEngine {
     if (message.id !== this.autoAdvanceDemiMessageId) {
       this.autoAdvanceDemiMessageId = null;
       this.autoAdvanceDemiRemainingMs = 0;
+      this.autoAdvanceDemiDelayMs = 2000;
     }
     this.activeSpeaker = message.speaker;
     this.channels[message.speaker].current = message;
@@ -141,6 +144,7 @@ export class DialogueEngine {
     if (origin === "transmit") {
       this.autoAdvanceDemiMessageId = message.id;
       this.autoAdvanceDemiRemainingMs = -1;
+      this.autoAdvanceDemiDelayMs = 2000;
     }
     this.activate(message);
     return true;
@@ -165,12 +169,14 @@ export class DialogueEngine {
       this.echoDemi(reaction.body, now, "system", true);
       this.autoAdvanceDemiMessageId = this.channels.DEMI.current?.id ?? null;
       this.autoAdvanceDemiRemainingMs = -1;
+      this.autoAdvanceDemiDelayMs = reaction.holdMs ?? 2000;
       return;
     }
     this.echoDemi(reaction.body, now);
     if (reaction.autoAdvance) {
       this.autoAdvanceDemiMessageId = this.channels.DEMI.current?.id ?? null;
       this.autoAdvanceDemiRemainingMs = -1;
+      this.autoAdvanceDemiDelayMs = reaction.holdMs ?? 2000;
     }
   }
 
@@ -190,19 +196,19 @@ export class DialogueEngine {
     return true;
   }
 
-  reactDemi(body: string, source: ReactionSource, now = performance.now(), autoAdvance = false): void {
+  reactDemi(body: string, source: ReactionSource, now = performance.now(), autoAdvance = false, holdMs?: number): void {
     const kore = this.channels.KORE.current;
     const koreBusy = this.activeSpeaker === "KORE" && Boolean(kore && !kore.fullyRead);
     // Physical actions are immediate interruptions. Hover reactions remain
     // deferable so moving the pointer cannot constantly steal the dialogue.
     if (!koreBusy || source !== "hover") {
-      this.activateReaction({ body, source, createdAt: now, autoAdvance }, now);
+      this.activateReaction({ body, source, createdAt: now, autoAdvance, holdMs }, now);
       return;
     }
     if (source === "hover") {
       this.pendingReactions = this.pendingReactions.filter((reaction) => reaction.source !== "hover");
     }
-    this.pendingReactions.push({ body, source, createdAt: now, autoAdvance });
+    this.pendingReactions.push({ body, source, createdAt: now, autoAdvance, holdMs });
     this.emit();
   }
 
@@ -341,12 +347,13 @@ export class DialogueEngine {
   private tickAutoAdvanceDemi(message: DialogueMessage, deltaMs: number): void {
     if (message.id !== this.autoAdvanceDemiMessageId || message.speaker !== "DEMI" || message.typing) return;
     if (this.autoAdvanceDemiRemainingMs < 0) {
-      this.autoAdvanceDemiRemainingMs = 2000;
+      this.autoAdvanceDemiRemainingMs = this.autoAdvanceDemiDelayMs;
     }
     this.autoAdvanceDemiRemainingMs -= deltaMs;
     if (this.autoAdvanceDemiRemainingMs > 0) return;
     this.autoAdvanceDemiMessageId = null;
     this.autoAdvanceDemiRemainingMs = 0;
+    this.autoAdvanceDemiDelayMs = 2000;
     if (message.transient && this.transientDemiActive) {
       const restored = this.restoreTransientDemi();
       if (this.pendingKore.length) this.activate(this.pendingKore.shift()!);

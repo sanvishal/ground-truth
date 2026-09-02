@@ -155,6 +155,7 @@ export type Level1Action =
   | { type: "RESET_BREAKER_4" }
   | { type: "DIVERT_DOOR" }
   | { type: "COMMIT_DOOR" }
+  | { type: "DEV_ADJUST_RESERVE"; amount: number }
   | { type: "RESET_RUN" };
 
 export interface Level1Effect {
@@ -469,7 +470,7 @@ export function applyLevel1Action(state: Level1State, action: Level1Action): Lev
         foundation: { ...state.foundation, diagnosticsRun: true }
       }, [
         { type: "event", code: "DIAGNOSTICS_COMPLETE", text: "DIAGNOSTIC HANDSHAKE COMPLETE" },
-        { type: "reaction", code: "DEMI_DIAGNOSTICS", text: "The room stays dark. The diagnostic sweep is complete." }
+        { type: "reaction", code: "DEMI_DIAGNOSTICS", text: "Nothing changed. The room's still dark." }
       ]);
     }
     case "SPEND_RESERVE": {
@@ -490,6 +491,14 @@ export function applyLevel1Action(state: Level1State, action: Level1Action): Lev
     }
     case "PENALIZE_PUZZLE_MISTAKE":
       return finish(state, { ...state, reserve: Math.max(0, state.reserve - 0.5) }, puzzleMistakeEffects(action.puzzle));
+    case "DEV_ADJUST_RESERVE": {
+      const reserve = Math.max(0, Math.min(LEVEL1_MAX_RESERVE, Math.round((state.reserve + action.amount) * 100) / 100));
+      return finish(state, { ...state, reserve }, [{
+        type: "event",
+        code: "DEV_AUX_ADJUSTED",
+        text: `DEV AUX SET TO ${reserve.toFixed(1)}`
+      }]);
+    }
     case "COMPLETE_CONTINUITY_SEQUENCE": {
       if (state.phase !== "wire_restore") return reject(state, "The continuity sequencer is not active.");
       if (state.wires.measuredPorts.length === 5) return reject(state, "All terminals have already been measured.");
@@ -818,7 +827,7 @@ export function applyLevel1Action(state: Level1State, action: Level1Action): Lev
       if (!ready) return reject(state, "Clean and stabilize the bus before diverting power to the door motor.");
       return finish(state, { ...state, phase: "door_diversion", door: { ...state.door, diverted: true } }, [
         { type: "event", code: "DOOR_FEED_LIVE", text: "DOOR MOTOR FEED LIVE" },
-        { type: "reaction", code: "DEMI_DOOR_FEED", text: "The door relay clunks. Compartment power drops as the door motor feed turns on." }
+        { type: "reaction", code: "DEMI_DOOR_FEED", text: "The relay clunked. The lights dipped hard." }
       ]);
     }
     case "COMMIT_DOOR": {

@@ -32,6 +32,7 @@ export interface Level2PanelHardwareTextures {
   ignitionStarterSocket: Texture;
   ignitionStarterPlug: Texture;
   ignitionCable: Texture;
+  podNumpad: Texture;
 }
 const text = (value: string, size = 13, fill = 0xc9c5ba) => new BitmapText({ text: value, style: { fontFamily: UI_FONT, fontSize: size, fill } });
 const drawArrow = (graphics: Graphics, x: number, y: number, lane: number, color: number, alpha = 1) => {
@@ -46,16 +47,20 @@ function shell(
   nameplateTexture: PanelNameplateTextures[keyof PanelNameplateTextures],
   placement: { x: number; y: number; width: number; rotation: number },
   frame: PanelFrameTextures[keyof PanelFrameTextures],
-  close: () => void
+  close: () => void,
+  layout: { x?: number; width?: number; height?: number } = {}
 ) {
+  const bodyX = layout.x ?? 146;
+  const bodyWidth = layout.width ?? 668;
+  const bodyHeight = layout.height ?? 352;
   const root = new Container(); root.visible = false; root.eventMode = "none";
   const shade = new Graphics().rect(0, 0, 960, 420).fill({ color: 0x020304, alpha: 0.84 });
   shade.eventMode = "static"; shade.cursor = "pointer"; shade.on("pointertap", close);
-  const body = new Container(); body.position.set(146, 32); body.eventMode = "static";
-  body.hitArea = new Rectangle(0, 0, 668, 352); body.on("pointertap", (event) => event.stopPropagation());
-  body.addChild(createPanelSurface(frame, 668, 352));
+  const body = new Container(); body.position.set(bodyX, 32); body.eventMode = "static";
+  body.hitArea = new Rectangle(0, 0, bodyWidth, bodyHeight); body.on("pointertap", (event) => event.stopPropagation());
+  body.addChild(createPanelSurface(frame, bodyWidth, bodyHeight));
   const heading = createPanelNameplate(nameplateTexture, placement.x, placement.y, placement.width, placement.rotation);
-  const closeButton = new Container(); closeButton.position.set(616, 13); closeButton.eventMode = "static"; closeButton.cursor = "pointer";
+  const closeButton = new Container(); closeButton.position.set(bodyWidth - 52, 13); closeButton.eventMode = "static"; closeButton.cursor = "pointer";
   closeButton.hitArea = new Rectangle(0, 0, 30, 30);
   const closeGlyph = panelText("X", 15, 0xe2a348); closeGlyph.anchor.set(0.5); closeGlyph.position.set(15, 15);
   closeButton.addChild(closeGlyph); closeButton.on("pointertap", close);
@@ -541,15 +546,47 @@ export function createLevel2PuzzleOverlays(
   // the pipe art; unlike the former frame, it has no visible rectangular edge.
   water.body.addChild(inlet, inletMask, outlet, outletMask, ...terminalVoids, flowArrowShadow, flowArrows);
 
-  const pod = shell(nameplates.transferPod, { x: 110, y: 20, width: 185, rotation: -0.014 }, frames.sealed, () => close());
-  const podDisplay = text("------", 30, 0xe2a348); podDisplay.position.set(250, 68);
-  const podStatus = text("ENTER LAUNCH SEQUENCE", 12); podStatus.position.set(234, 108);
-  pod.body.addChild(podDisplay, podStatus);
+  const pod = shell(
+    nameplates.transferPod,
+    { x: 22, y: 20, width: 185, rotation: -0.014 },
+    frames.standard,
+    () => close(),
+    { x: 300, width: 360 }
+  );
+  const podCrtGlow = new Graphics()
+    .roundRect(100, 61, 160, 39, 4)
+    .fill({ color: 0x2b6b61, alpha: 0.34 });
+  podCrtGlow.blendMode = "add";
+  podCrtGlow.filters = [new BlurFilter({ strength: 8, quality: 1 })];
+  const podCrt = new Graphics()
+    .roundRect(100, 61, 160, 39, 4)
+    .fill({ color: 0x061313, alpha: 0.98 });
+  const podPhosphor = new Graphics()
+    .roundRect(106, 67, 148, 27, 7)
+    .fill({ color: 0x3a8b78, alpha: 0.1 });
+  podPhosphor.blendMode = "add";
+  const podScanlines = new Graphics();
+  for (let y = 64; y < 98; y += 2) podScanlines.moveTo(103, y).lineTo(257, y);
+  podScanlines.stroke({ color: 0x000000, width: 1, alpha: 0.5 });
+  const podDisplayGlow = text("------", 25, 0xf0b44c);
+  podDisplayGlow.anchor.set(0.5); podDisplayGlow.position.set(180, 83);
+  podDisplayGlow.alpha = 0.55;
+  podDisplayGlow.blendMode = "add";
+  podDisplayGlow.filters = [new BlurFilter({ strength: 3, quality: 1 })];
+  const podDisplay = text("------", 25, 0xe2a348);
+  podDisplay.anchor.set(0.5); podDisplay.position.set(180, 83);
+  const podNumpad = new Sprite(hardware.podNumpad);
+  podNumpad.position.set(100, 100); podNumpad.width = 160; podNumpad.height = 220; podNumpad.alpha = 0.72; podNumpad.roundPixels = true;
+  pod.body.addChild(podCrtGlow, podCrt, podPhosphor, podScanlines, podDisplayGlow, podDisplay, podNumpad);
+  const keyColumns = [140, 180, 221];
+  const keyRows = [143, 187, 231, 275];
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "DEL", "0", "ENTER"].forEach((digit, index) => {
-    const key = new Container(); key.position.set(213 + (index % 3) * 82, 148 + Math.floor(index / 3) * 48);
-    key.eventMode = "static"; key.cursor = "pointer"; key.hitArea = new Rectangle(0, 0, 68, 36);
-    const back = new Graphics().roundRect(0, 0, 68, 36, 3).fill(0x111517).stroke({ color: 0x6b5735, width: 1 });
-    const caption = text(digit, digit.length > 1 ? 10 : 15, 0xe2a348); caption.anchor.set(0.5); caption.position.set(34, 18); key.addChild(back, caption);
+    const key = new Container(); key.position.set(keyColumns[index % 3]!, keyRows[Math.floor(index / 3)]!);
+    key.eventMode = "static"; key.cursor = "pointer"; key.hitArea = new Rectangle(-21, -20, 42, 40);
+    const caption = text(digit, digit.length > 1 ? 10 : 18, 0xf0b44c); caption.anchor.set(0.5); key.addChild(caption);
+    key.on("pointerdown", () => { caption.y = 2; caption.tint = 0xffd079; });
+    key.on("pointerup", () => { caption.y = 0; caption.tint = 0xffffff; });
+    key.on("pointerupoutside", () => { caption.y = 0; caption.tint = 0xffffff; });
     key.on("pointertap", () => {
       if (digit === "DEL") handlers.dispatch({ type: "POD_BACKSPACE" });
       else if (digit === "ENTER") handlers.dispatch({ type: "SUBMIT_POD_CODE" });
@@ -793,8 +830,13 @@ export function createLevel2PuzzleOverlays(
     starter.position.set(ropePoints.at(-1)!.x, ropePoints.at(-1)!.y);
     starterCallout.visible = !state.ignition.running && !state.ignition.solved;
 
-    podDisplay.text = `${state.pod.input}${"-".repeat(Math.max(0, 6 - state.pod.input.length))}`;
-    podStatus.text = state.pod.opened ? "POD UNSEALED" : "ENTER LAUNCH SEQUENCE";
+    const podCode = `${state.pod.input}${"-".repeat(Math.max(0, 6 - state.pod.input.length))}`;
+    podDisplay.text = podCode;
+    podDisplayGlow.text = podCode;
+    const crtFlicker = 0.92 + Math.sin(pulseMs / 43) * 0.045 + Math.sin(pulseMs / 17) * 0.025;
+    podDisplay.alpha = crtFlicker;
+    podDisplayGlow.alpha = 0.42 + crtFlicker * 0.15;
+    podCrtGlow.alpha = 0.78 + Math.sin(pulseMs / 67) * 0.08;
   };
 
   const onKeyDown = (event: KeyboardEvent) => {

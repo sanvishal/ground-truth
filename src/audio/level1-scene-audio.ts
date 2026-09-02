@@ -23,6 +23,7 @@ export class Level1SceneAudio {
   private readonly panelError = makeAudio("panel-error.mp3", 0.30);
   private readonly controlClunk = makeAudio("panel-close.mp3", 0.11);
   private unlocked = false;
+  private menuActive = false;
   private sceneActive = false;
   private coldOpenActive = false;
   private alarmActive = false;
@@ -61,6 +62,11 @@ export class Level1SceneAudio {
 
   setSceneActive(active: boolean): void {
     this.sceneActive = active;
+    this.syncLoops();
+  }
+
+  setMenuActive(active: boolean): void {
+    this.menuActive = active;
     this.syncLoops();
   }
 
@@ -131,7 +137,10 @@ export class Level1SceneAudio {
   }
 
   private syncLoops(): void {
-    const shouldPlayAmbient = this.unlocked && (this.sceneActive || this.coldOpenActive) && this.visible && !this.muted;
+    const shouldPlayAmbient = this.unlocked
+      && (this.menuActive || this.sceneActive || this.coldOpenActive)
+      && this.visible
+      && !this.muted;
     const shouldPlayAlarm = this.unlocked
       && ((this.sceneActive && this.alarmActive) || (this.coldOpenActive && this.coldOpenAlarmActive))
       && this.visible

@@ -203,6 +203,16 @@ describe("Level 1 simulation", () => {
     expect(collision.state.wires.connections.blue_heavy).toBe(occupiedPort);
   });
 
+  it("lets devtools adjust AUX within the level reserve bounds", () => {
+    let state = createInitialLevel1State();
+    state = run(state, { type: "DEV_ADJUST_RESERVE", amount: -0.5 });
+    expect(state.reserve).toBe(LEVEL1_MAX_RESERVE - 0.5);
+    state = run(state, { type: "DEV_ADJUST_RESERVE", amount: -100 });
+    expect(state.reserve).toBe(0);
+    state = run(state, { type: "DEV_ADJUST_RESERVE", amount: 100 });
+    expect(state.reserve).toBe(LEVEL1_MAX_RESERVE);
+  });
+
   it("trips recoverably on the wrong breaker order and arc-flashes on breaker four", () => {
     let state = reachSpiral();
     state = run(state, { type: "SET_JUNCTION", route: "rough" });

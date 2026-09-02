@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyLevel2Action, createInitialLevel2State, getIgnitionContactTime, getIgnitionTimingWindow,
   getLaunchCode, getThermalMismatchCount, isEnvironmentAbnormal, isTemperatureAbnormal,
-  TEMPERATURE_SAFE_BAND, THERMAL_FEED_IDS, WATER_SOLUTION,
+  LEVEL2_MAX_RESERVE, TEMPERATURE_SAFE_BAND, THERMAL_FEED_IDS, WATER_SOLUTION,
   type BallastRate, type Level2State, type ThermalSocketId
 } from "../src/sim/level2";
 
@@ -232,6 +232,16 @@ describe("level 2 simulation", () => {
     state = apply(state, { type: "SET_IGNITION_PANEL", open: true });
     state = apply(state, { type: "TICK", deltaMs: 100 });
     expect(state.ignition.runElapsedMs).toBe(elapsed + 100);
+  });
+
+  it("lets devtools adjust AUX within the level reserve bounds", () => {
+    let state = createInitialLevel2State();
+    state = apply(state, { type: "DEV_ADJUST_RESERVE", amount: -0.5 });
+    expect(state.reserve).toBe(LEVEL2_MAX_RESERVE - 0.5);
+    state = apply(state, { type: "DEV_ADJUST_RESERVE", amount: -100 });
+    expect(state.reserve).toBe(0);
+    state = apply(state, { type: "DEV_ADJUST_RESERVE", amount: 100 });
+    expect(state.reserve).toBe(LEVEL2_MAX_RESERVE);
   });
 
   it("opens the pod immediately when the player already knows the six-digit code", () => {

@@ -154,10 +154,15 @@ export function mountLevel1RuntimeLab(
       button("SIMULATE OPEN DOOR", simulateOpenDoor),
       button("RESET RUN", () => session.reset(), "quiet")
     ]),
+    group("AUX POWER", [
+      button("− 0.5 AUX", () => dispatch({ type: "DEV_ADJUST_RESERVE", amount: -0.5 })),
+      button("+ 0.5 AUX", () => dispatch({ type: "DEV_ADJUST_RESERVE", amount: 0.5 }))
+    ]),
     group("SCENE FX", [
       button("SHAKE SCREEN", controls.triggerImpact),
       button("COLD OPEN", controls.triggerColdOpen),
-      button("LEVEL 1 → 2", controls.triggerLevelTransition)
+      button("LEVEL 1 → 2", controls.triggerLevelTransition),
+      button("GAME OVER", controls.triggerGameOver, "danger")
     ])
   );
 

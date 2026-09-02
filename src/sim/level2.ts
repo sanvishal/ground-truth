@@ -11,6 +11,7 @@ export const IGNITION_PATTERN_LENGTH = 16;
 export const IGNITION_STRIKE_THRESHOLD = 100;
 export const IGNITION_TIMING_WINDOW_MS = 190;
 export const IGNITION_ASSIST_WINDOW_MS = 280;
+export const LEVEL2_MAX_RESERVE = 10.5;
 const PRESSURE_DRIFT_MIN = 0.165;
 const PRESSURE_DRIFT_RANGE = 0.11;
 export const IGNITION_RATE_SPACING_MS: Readonly<Record<BallastRate, number>> = {
@@ -90,6 +91,7 @@ export type Level2Action =
   | { type: "DEV_STABILIZE" } | { type: "DEV_SOLVE_WATER" }
   | { type: "DEV_REMAP_THERMAL" } | { type: "DEV_MATCH_THERMAL" }
   | { type: "DEV_SOLVE_IGNITION" } | { type: "DEV_READY_TRANSFER" } | { type: "DEV_OPEN_POD" }
+  | { type: "DEV_ADJUST_RESERVE"; amount: number }
   | { type: "RESET_RUN" };
 export interface Level2Transition { ok: boolean; state: Level2State; error?: string; effects: string[] }
 
@@ -338,7 +340,7 @@ export function createInitialLevel2State(seed = 0x47543232): Level2State {
   const keys = [...IGNITION_ARROW_KEYS] as [string, string, string, string];
   const pattern = makeIgnitionPattern(random);
   return {
-    seed, phase: "arrival", elapsedMs: 0, reserve: 10.5, overlayOpen: false,
+    seed, phase: "arrival", elapsedMs: 0, reserve: LEVEL2_MAX_RESERVE, overlayOpen: false,
     pressure: (pressureControl.band.min + pressureControl.band.max) / 2, pressureControl, temperature: 20, thermal, environmentAlarmMs: 0,
     water: { ...waterBoard, rotations, connected: false, solved: false, invalidOrder: false, flowingIndices: [], digits: digits(random) },
     ignition: {
@@ -542,6 +544,10 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
     }
     case "DEV_SOLVE_WATER": return succeed(applyWaterRotations(state, [...WATER_CLEAN_SOLUTION]), "DEV_WATER_SOLVED");
     case "DEV_SOLVE_IGNITION": return succeed({ ...state, ignition: { ...state.ignition, solved: true, running: false, charge: 100 } }, "DEV_IGNITION_SOLVED");
+    case "DEV_ADJUST_RESERVE": return succeed({
+      ...state,
+      reserve: Math.max(0, Math.min(LEVEL2_MAX_RESERVE, Math.round((state.reserve + action.amount) * 100) / 100))
+    }, "DEV_AUX_ADJUSTED");
     case "DEV_READY_TRANSFER": {
       const water = applyWaterRotations(state, [...WATER_CLEAN_SOLUTION]).water;
       return succeed({

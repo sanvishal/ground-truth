@@ -69,6 +69,19 @@ const C = {
   green: 0x69866e
 };
 
+const demiObservationForLevel2Failure = (error?: string): string | null => {
+  switch (error) {
+    case "That section cannot rotate.": return "That piece won't turn.";
+    case "Pull the exciter handle faster.": return "Maybe I need to do it faster.";
+    case "The exciter is not turning.": return "Nothing's moving yet.";
+    case "The sequencer is counting down.": return "The countdown's still running.";
+    case "That key is not wired to the sequencer.": return "That key did nothing.";
+    case "The keypad accepts six digits.": return "Six digits are already showing.";
+    case "The pod rejects the sequence.": return "The display cleared. It didn't unlock.";
+    default: return null;
+  }
+};
+
 const MENU_STAR_COLORS = [
   0x9db4ff, 0xaabfff, 0xc0d1ff, 0xe4e8ff, 0xfbf8ff,
   0xfff5ec, 0xffebd1, 0xffd7ae, 0xffc690
@@ -106,10 +119,10 @@ function createMenuStarfield(asteroidSheetTexture: Texture): MenuStarfield {
     strength: number;
   }> = [];
   const bands = [
-    { speed: 1.2, count: 160, alpha: 0.34, parallax: 2, size: 1, brightSize: 2, brightThreshold: 0.9, seed: 0x4d454e31 },
-    { speed: 4.8, count: 122, alpha: 0.56, parallax: 7, size: 1, brightSize: 2, brightThreshold: 0.84, seed: 0x4d454e32 },
-    { speed: 10.8, count: 88, alpha: 0.8, parallax: 15, size: 2, brightSize: 3, brightThreshold: 0.78, seed: 0x4d454e33 },
-    { speed: 19, count: 38, alpha: 0.96, parallax: 26, size: 3, brightSize: 5, brightThreshold: 0.72, seed: 0x4d454e34 }
+    { speed: 1.2, count: 96, alpha: 0.34, parallax: 2, size: 1, brightSize: 2, brightThreshold: 0.9, seed: 0x4d454e31 },
+    { speed: 4.8, count: 73, alpha: 0.56, parallax: 7, size: 1, brightSize: 2, brightThreshold: 0.84, seed: 0x4d454e32 },
+    { speed: 10.8, count: 53, alpha: 0.8, parallax: 15, size: 2, brightSize: 3, brightThreshold: 0.78, seed: 0x4d454e33 },
+    { speed: 19, count: 23, alpha: 0.96, parallax: 26, size: 3, brightSize: 5, brightThreshold: 0.72, seed: 0x4d454e34 }
   ].map((config) => {
     const random = seededRandom(config.seed);
     const band = new Container();
@@ -286,6 +299,7 @@ export interface GroundtruthTestControls {
   triggerImpact(): void;
   triggerColdOpen(): void;
   triggerLevelTransition(): void;
+  triggerGameOver(): void;
   previewAnimation(): void;
   setPreset(value: DialoguePreset): void;
   setSpeed(value: number): void;
@@ -697,7 +711,7 @@ export async function createGroundtruthGame(
   };
   window.addEventListener("pointerdown", unlockSceneAudio, { once: true, capture: true });
   window.addEventListener("keydown", unlockSceneAudio, { once: true, capture: true });
-  const totalTextures = 38 + COLD_OPEN_PANELS.length + GAME_OVER_PANELS.length + WIN_ENDING_PANELS.length;
+  const totalTextures = 40 + COLD_OPEN_PANELS.length + GAME_OVER_PANELS.length + WIN_ENDING_PANELS.length;
   let loadedTextures = 0;
   const loadTexture = async (path: string, label: string): Promise<Texture> => {
     const texture = await Assets.load<Texture>(path);
@@ -708,7 +722,7 @@ export async function createGroundtruthGame(
     });
     return texture;
   };
-  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, level2WaterHardwareTexture, level2WaterPipesTexture, level2WaterGridTexture, level2IgnitionHardwareTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
+  const [roomTexture, demiTexture, koreTexture, portraitHousingTexture, logTabletTexture, uiIconsTexture, logIconTexture, auxChunkTexture, level1RoomTexture, level1WindowMaskTexture, level1WindowCracksTexture, level1ForegroundTexture, level1AsteroidsTexture, panelStandardTexture, panelReinforcedTexture, panelSealedTexture, panelNameplatesTexture, level2PanelNameplatesTexture, level2PressureHardwareTexture, level2PressureWheelTexture, level2ThermalHardwareTexture, level2ThermalPipesTexture, level2WaterHardwareTexture, level2WaterPipesTexture, level2WaterGridTexture, level2IgnitionHardwareTexture, level2PodNumpadTexture, busLoomHeadsTexture, busLoomConnectorStatesTexture, busLoomCablesTexture, continuityPathTexture, continuityMovableTexture, regulatorHardwareTexture, junctionHardwareTexture, breakerHardwareTexture, breakerGlyphTexture, titleLogoTexture] = await Promise.all([
     loadTexture("/assets/art/example-bridge.png", "LOADING SHIP INTERIOR"),
     loadTexture("/assets/art/demi-dialogue-spritesheet.png", "LOADING DEMI"),
     loadTexture("/assets/art/kore-dialogue-spritesheet.png", "LOADING KORE"),
@@ -719,6 +733,7 @@ export async function createGroundtruthGame(
     loadTexture("/assets/art/aux-chunk-v2.png", "CALIBRATING AUX POWER"),
     loadTexture("/assets/art/level1/integrated-room-A-damage-v2.png", "RESTORING LEVEL 1"),
     loadTexture("/assets/art/level1/window-mask-integrated-A.png", "CUTTING VIEWPORT"),
+    loadTexture("/assets/art/level1/window-cracks-v1.png", "RESTORING WINDOW DAMAGE"),
     loadTexture("/assets/art/level1/foreground-A.png", "ASSEMBLING SHIP INTERIOR"),
     loadTexture("/assets/art/level1/asteroid-spritesheet-E-runtime.png", "MAPPING ASTEROIDS"),
     loadTexture("/assets/art/ui/panel-frames/standard-d.png", "LOADING REPAIR PANELS"),
@@ -734,6 +749,7 @@ export async function createGroundtruthGame(
     loadTexture("/assets/art/ui/panel-hardware/level2-water-pipes-v2.png", "FITTING RECLAMATION PIPES"),
     loadTexture("/assets/art/ui/panel-hardware/level2-water-grid-v2.png", "PLATING RECLAMATION GRID"),
     loadTexture("/assets/art/ui/panel-hardware/level2-ignition-hardware-v1.png", "ASSEMBLING IGNITION SEQUENCER"),
+    loadTexture("/assets/art/ui/panel-hardware/level2-pod-numpad-v1.png", "ASSEMBLING TRANSFER POD"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-heads-v2.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-connector-states-v3.png", "LOADING BUS LOOM"),
     loadTexture("/assets/art/ui/panel-hardware/bus-loom-cables-v2.png", "LOADING BUS LOOM"),
@@ -755,6 +771,7 @@ export async function createGroundtruthGame(
   auxChunkTexture.source.scaleMode = "nearest";
   level1RoomTexture.source.scaleMode = "nearest";
   level1WindowMaskTexture.source.scaleMode = "nearest";
+  level1WindowCracksTexture.source.scaleMode = "nearest";
   level1ForegroundTexture.source.scaleMode = "nearest";
   level1AsteroidsTexture.source.scaleMode = "nearest";
   panelStandardTexture.source.scaleMode = "nearest";
@@ -770,6 +787,7 @@ export async function createGroundtruthGame(
   level2WaterPipesTexture.source.scaleMode = "nearest";
   level2WaterGridTexture.source.scaleMode = "nearest";
   level2IgnitionHardwareTexture.source.scaleMode = "nearest";
+  level2PodNumpadTexture.source.scaleMode = "nearest";
   busLoomHeadsTexture.source.scaleMode = "nearest";
   busLoomConnectorStatesTexture.source.scaleMode = "nearest";
   busLoomCablesTexture.source.scaleMode = "nearest";
@@ -872,7 +890,8 @@ export async function createGroundtruthGame(
     waterGridTile: new Texture({ source: level2WaterGridTexture.source, frame: new Rectangle(126, 596, 302, 302) }),
     ignitionStarterSocket: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(225, 597, 190, 161) }),
     ignitionStarterPlug: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(641, 568, 115, 220) }),
-    ignitionCable: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(35, 883, 1466, 49) })
+    ignitionCable: new Texture({ source: level2IgnitionHardwareTexture.source, frame: new Rectangle(35, 883, 1466, 49) }),
+    podNumpad: level2PodNumpadTexture
   };
   const panelHardware = {
     busConnectorHeads: {
@@ -967,6 +986,7 @@ export async function createGroundtruthGame(
     compositor = createLevel1CompositorProof(
       level1RoomTexture,
       level1WindowMaskTexture,
+      level1WindowCracksTexture,
       level1ForegroundTexture,
       level1AsteroidsTexture,
       () => outputPixelScale,
@@ -1009,6 +1029,8 @@ export async function createGroundtruthGame(
   else window.addEventListener("resize", resizeGame);
 
   const hudLayer = new Container();
+  const auxHudBaseScale = 1.16;
+  hudLayer.scale.set(auxHudBaseScale);
   root.addChild(hudLayer);
   const auxIconGlow = new Graphics();
   drawZapGlyph(auxIconGlow);
@@ -1057,6 +1079,8 @@ export async function createGroundtruthGame(
     const fade = pulseActive ? Math.min(1, (auxDrainPulseEndsAt - now) / 320) : 0;
     const wave = pulseActive ? 0.62 + Math.cos(elapsed * 0.018) * 0.38 : 0;
     const pulseAmount = Math.max(0, wave * fade);
+    const drainKick = pulseActive ? Math.max(0, 1 - elapsed / 720) : 0;
+    hudLayer.scale.set(auxHudBaseScale * (1 + drainKick * 0.16 + pulseAmount * 0.025));
     const filledTint = mixTint(0xffffff, 0xff3d35, pulseAmount);
     const filledSegments = Math.ceil((reserve / LEVEL1_MAX_RESERVE) * auxSegmentSprites.length);
     for (let index = 0; index < auxSegmentSprites.length; index += 1) {
@@ -1393,8 +1417,10 @@ export async function createGroundtruthGame(
         if (!suppressCheckpointWrite) writeLevel2Checkpoint(localStorage, level2.snapshot());
       }, 500);
     }
+    const previousReserve = reserve;
     if (reserve !== transition.state.reserve) {
       reserve = transition.state.reserve;
+      if (reserve < previousReserve) pulseAuxDrain();
       drawReserve();
     }
     if (useLevel2Scene) sceneAudio.setIgnitionHumRate(getBallastRateIndex(transition.state.ignition.rate));
@@ -1404,7 +1430,6 @@ export async function createGroundtruthGame(
         addEvent("FAINT WATER CONSOLE TRACE", transition.state.water.digits);
         dialogue.reactDemi("These numbers appeared on the console, faintly.", "world");
       }
-      if (effect === "THERMAL_PORTS_REMAPPED_FIRST") dialogue.reactDemi("The coupling indicators just reassigned themselves. The cables stayed put.", "world");
       if ((effect === "THERMAL_PORTS_REMAPPED" || effect === "THERMAL_PORTS_REMAPPED_FIRST") && transition.state.thermal.panelOpen) sceneAudio.playControlClunk();
       if (effect === "THERMAL_PLUG_SEATED") sceneAudio.playControlClunk();
       if (effect === "IGNITION_STARTED" || effect === "IGNITION_HIT" || effect === "BALLAST_RATE_CHANGED") sceneAudio.playControlClunk();
@@ -1421,7 +1446,7 @@ export async function createGroundtruthGame(
   if (useLevel2Scene) sceneAudio.setIgnitionHumRate(getBallastRateIndex(level2.snapshot().ignition.rate));
   if (useLevel1Scene) {
     const react = (text: string) => dialogue.reactDemi(text, "world");
-    const reactScene = (text: string) => dialogue.reactDemi(text, "hover");
+    const reactScene = (text: string) => dialogue.reactDemi(text, "hover", performance.now(), false, 4000);
     const inspect = (id: Level1InteractableId) => {
       const state = level1.snapshot();
       const environmental = id === "window"
@@ -1431,7 +1456,7 @@ export async function createGroundtruthGame(
         || id === "bloodstreaks"
         || id === "ceiling_cable";
       if (!environmental && (state.phase === "disconnected" || state.phase === "foundation")) {
-        react("I should establish what KORE can still reach before I start pulling hardware apart.");
+        react("I shouldn't touch these until I hear KORE's initial report.");
         return;
       }
       switch (id) {
@@ -1453,7 +1478,7 @@ export async function createGroundtruthGame(
           react("Three vertical controls shape a waveform. There are no numeric markings.");
           break;
         case "breaker_bank":
-          react(state.spiral.busRead ? "Four glyph-marked branches. One housing is warmer than the others." : "Four glyph-marked branches. Their housings can be checked before a lever is moved.");
+          react("Four branches. Each has a glyph, a lever, and a metal housing. One housing is warmer than the others.");
           break;
         case "door_panel":
           if (state.door.diverted) {
@@ -1553,7 +1578,8 @@ export async function createGroundtruthGame(
     const dispatchLevel2 = (action: Level2Action) => {
       const transition = level2.dispatch(action);
       if (!transition.ok) {
-        dialogue.reactDemi(transition.error ?? "That isn't working.", "hover");
+        const observation = demiObservationForLevel2Failure(transition.error);
+        if (observation) dialogue.reactDemi(observation, "hover");
         triggerPuzzleShake();
       }
       level2InteractionLayer?.refresh();
@@ -1906,6 +1932,7 @@ export async function createGroundtruthGame(
       mainMenu.eventMode = "none";
     }
     startup.visible = false;
+    sceneAudio.setMenuActive(false);
     sceneAudio.setSceneActive(true);
     addEvent(useLevel2Scene ? "LEVEL 2 ENTERED" : "LEVEL 1 ENTERED");
   };
@@ -2026,6 +2053,7 @@ export async function createGroundtruthGame(
 
   const playColdOpen = (onComplete?: () => void) => {
     startup.visible = false;
+    sceneAudio.setMenuActive(false);
     sceneAudio.setColdOpenActive(true);
     sceneAudio.setColdOpenAlarmActive(false);
     sceneAudio.setSceneActive(false);
@@ -2274,6 +2302,7 @@ export async function createGroundtruthGame(
   howToPlayButton.position.set(390, 426);
   menu.addChild(howToPlayButton, menuHelp);
   root.addChild(menu);
+  sceneAudio.setMenuActive(true);
 
   if (!directLevel2) void registerTools(false);
 
@@ -2445,6 +2474,7 @@ export async function createGroundtruthGame(
     triggerImpact: () => startImpactShake(performance.now(), true),
     triggerColdOpen: () => playColdOpen(() => addEvent("COLD OPEN PREVIEW COMPLETE")),
     triggerLevelTransition,
+    triggerGameOver: triggerGameOverEnding,
     previewAnimation: () => {
       cards[activeSpeaker].portrait.preview();
       addEvent("PORTRAIT ANIMATION PREVIEW", activeSpeaker);

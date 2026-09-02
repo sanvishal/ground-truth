@@ -1,4 +1,5 @@
 import type { Level2Session } from "../runtime/level2-session";
+import type { GroundtruthTestControls } from "../render/game";
 import { BALLAST_RATES, getLaunchCode, getThermalMismatchCount, THERMAL_FEED_IDS, type Level2Action, type Level2State } from "../sim/level2";
 
 const button = (label: string, action: () => void, tone = "normal"): HTMLButtonElement => {
@@ -23,7 +24,11 @@ const group = (label: string, actions: HTMLButtonElement[]): HTMLElement => {
   return section;
 };
 
-export function mountLevel2RuntimeLab(session: Level2Session, activeTools: () => string[]): void {
+export function mountLevel2RuntimeLab(
+  session: Level2Session,
+  controls: GroundtruthTestControls,
+  activeTools: () => string[]
+): void {
   if (new URLSearchParams(location.search).get("dev") !== "1") return;
   const root = document.querySelector<HTMLElement>("#dialogue-lab");
   if (!root) return;
@@ -71,7 +76,12 @@ export function mountLevel2RuntimeLab(session: Level2Session, activeTools: () =>
       button("SUBMIT CODE", () => dispatch({ type: "SUBMIT_POD_CODE" })),
       button("OPEN POD", () => dispatch({ type: "DEV_OPEN_POD" })),
       button("RESET RUN", () => session.reset(), "quiet")
-    ])
+    ]),
+    group("AUX POWER", [
+      button("− 0.5 AUX", () => dispatch({ type: "DEV_ADJUST_RESERVE", amount: -0.5 })),
+      button("+ 0.5 AUX", () => dispatch({ type: "DEV_ADJUST_RESERVE", amount: 0.5 }))
+    ]),
+    group("ENDING", [button("GAME OVER", controls.triggerGameOver, "danger")])
   );
   const trace = document.createElement("pre");
   trace.className = "runtime-trace";

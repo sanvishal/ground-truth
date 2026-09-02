@@ -95,7 +95,7 @@ if (isDev) {
     level2: game.level2
   };
   mountLevel1RuntimeLab(game.level1, game.test, game.activeTools);
-  mountLevel2RuntimeLab(game.level2, game.activeTools);
+  mountLevel2RuntimeLab(game.level2, game.test, game.activeTools);
   mountRuntimeTabs(isLevel2Proof ? "2" : "1");
 }
 

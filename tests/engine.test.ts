@@ -78,6 +78,17 @@ describe("DialogueEngine", () => {
     expect(engine.snapshot().activeSpeaker).toBe("KORE");
   });
 
+  it("keeps a passive hover observation visible for its custom hold time", () => {
+    const engine = makeEngine();
+    engine.reactDemi("A passive environmental observation.", "hover", 0, false, 4000);
+    engine.advance(1);
+
+    engine.tick(3999);
+    expect(engine.snapshot().activeSpeaker).toBe("DEMI");
+    engine.tick(2);
+    expect(engine.snapshot().activeSpeaker).toBe("KORE");
+  });
+
   it("keeps only the newest hover reaction and expires it after four seconds", () => {
     const engine = makeEngine();
     engine.receiveKore("A live transmission that has not finished.", 0);
