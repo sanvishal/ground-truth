@@ -6,6 +6,7 @@ import { mountLevel2RuntimeLab } from "./dev/level2-runtime-lab";
 import { mountRuntimeTabs } from "./dev/runtime-tabs";
 import { loadDialogueFonts } from "./fonts";
 import { createGroundtruthGame } from "./render/game";
+import { registerBootstrapRelay } from "./tools/bootstrap-webmcp";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 if (!canvas) throw new Error("GROUNDTRUTH canvas is missing");
@@ -50,15 +51,17 @@ const updateLoader = (progress: number) => {
 showNextPreflightMessage();
 const preflightMessageTimer = window.setInterval(showNextPreflightMessage, 560);
 updateLoader(0.03);
+const bootstrapRelay = registerBootstrapRelay(document.modelContext);
 const bootstrap = async () => {
   const loaderStartedAt = performance.now();
   let game: Awaited<ReturnType<typeof createGroundtruthGame>>;
   try {
+    await bootstrapRelay.ready;
     await loadDialogueFonts();
     updateLoader(0.12);
     game = await createGroundtruthGame(canvas, ({ progress }) => {
       updateLoader(0.12 + progress * 0.84);
-    });
+    }, bootstrapRelay);
     updateLoader(1);
     const minimumLoaderDuration = 750;
     const remainingLoaderTime = minimumLoaderDuration - (performance.now() - loaderStartedAt);
@@ -69,6 +72,7 @@ const bootstrap = async () => {
     window.clearInterval(preflightMessageTimer);
     loader?.classList.add("is-complete");
   } catch (error) {
+    bootstrapRelay.release();
     window.clearInterval(preflightMessageTimer);
     loader?.classList.add("is-error");
     updateLoader(1);

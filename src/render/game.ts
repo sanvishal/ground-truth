@@ -18,6 +18,7 @@ import type { DialogueMessage, DialogueSnapshot, PageMetrics, Speaker } from "..
 import { DIALOGUE_FONT, UI_FONT } from "../fonts";
 import { SAMPLE_DEMI_HOVER, SAMPLE_DEMI_LONG, SAMPLE_KORE_INTERRUPT, SAMPLE_KORE_LONG } from "../dev/samples";
 import { registerLevel1Tools, type ToolRegistration } from "../tools/webmcp";
+import type { BootstrapRelayRegistration } from "../tools/bootstrap-webmcp";
 import { registerLevel2Tools } from "../tools/webmcp-level2";
 import { Level1Session } from "../runtime/level1-session";
 import { Level2Session } from "../runtime/level2-session";
@@ -687,7 +688,8 @@ export interface GameLoadProgress {
 
 export async function createGroundtruthGame(
   canvas: HTMLCanvasElement,
-  onLoadProgress?: (progress: GameLoadProgress) => void
+  onLoadProgress?: (progress: GameLoadProgress) => void,
+  bootstrapRelay?: BootstrapRelayRegistration
 ) {
   const app = new Application();
   const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
@@ -977,34 +979,38 @@ export async function createGroundtruthGame(
   const isDev = searchParams.get("dev") === "1";
   const directLevel2 = searchParams.get("level") === "2";
   const restartRequested = searchParams.get("restart") === "1";
-  const useLevel2Scene = requestedScene === "level2-proof" || directLevel2;
+  let useLevel2Scene = requestedScene === "level2-proof" || directLevel2;
   // Level 1 is now the real/default game scene. Keep the original dialogue
   // room available as an explicit fallback for isolated dialogue testing.
-  const useLevel1Scene = requestedScene !== "example" && !useLevel2Scene;
+  let useLevel1Scene = requestedScene !== "example" && !useLevel2Scene;
   let compositor: Level1CompositorProof | undefined;
   let level2Compositor: Level2LightingProof | undefined;
-  if (useLevel2Scene) {
+  if (useLevel1Scene || useLevel2Scene) {
+    if (useLevel1Scene) {
+      compositor = createLevel1CompositorProof(
+        level1RoomTexture,
+        level1WindowMaskTexture,
+        level1WindowCracksTexture,
+        level1ForegroundTexture,
+        level1AsteroidsTexture,
+        () => outputPixelScale,
+        isDev,
+        {
+          sparkBurst: () => sceneAudio.rareSpark(),
+          steamJetStart: () => sceneAudio.rareSteam(),
+          alarmActive: (active) => {
+            if (useLevel1Scene) sceneAudio.setAlarmActive(active);
+          }
+        }
+      );
+      gameLayer.addChild(compositor.container);
+    }
     level2Compositor = createLevel2LightingProof(level2RoomTexture, level2AlarmRoomTexture, {
       sparkBurst: () => sceneAudio.rareSpark(),
       steamJetStart: () => sceneAudio.rareSteam()
     });
+    level2Compositor.container.visible = useLevel2Scene;
     gameLayer.addChild(level2Compositor.container);
-  } else if (useLevel1Scene) {
-    compositor = createLevel1CompositorProof(
-      level1RoomTexture,
-      level1WindowMaskTexture,
-      level1WindowCracksTexture,
-      level1ForegroundTexture,
-      level1AsteroidsTexture,
-      () => outputPixelScale,
-      isDev,
-      {
-        sparkBurst: () => sceneAudio.rareSpark(),
-        steamJetStart: () => sceneAudio.rareSteam(),
-        alarmActive: (active) => sceneAudio.setAlarmActive(active)
-      }
-    );
-    gameLayer.addChild(compositor.container);
   } else {
     const room = new Sprite(roomTexture);
     room.anchor.set(0.5);
@@ -1518,9 +1524,7 @@ export async function createGroundtruthGame(
           break;
         case "door_exit": {
           if (!state.door.opened) break;
-          const nextQuery = new URLSearchParams({ level: "2" });
-          if (isDev) nextQuery.set("dev", "1");
-          window.location.assign(`${window.location.origin}${window.location.pathname}?${nextQuery.toString()}`);
+          triggerLevelTransition();
           break;
         }
         case "window":
@@ -1581,9 +1585,10 @@ export async function createGroundtruthGame(
       reinforced: panelReinforcedTexture,
       sealed: panelSealedTexture
     }, panelNameplates, panelHardware);
+    interactionLayer.container.visible = useLevel1Scene;
     gameLayer.addChild(interactionLayer.container);
   }
-  if (useLevel2Scene) {
+  if (useLevel1Scene || useLevel2Scene) {
     const inspectLevel2 = (id: Level2InteractableId) => {
       const react = (text: string) => dialogue.reactDemi(text, "hover");
       switch (id) {
@@ -1632,6 +1637,7 @@ export async function createGroundtruthGame(
       reinforced: panelReinforcedTexture,
       sealed: panelSealedTexture
     }, panelNameplates, level2PanelHardware);
+    level2InteractionLayer.container.visible = useLevel2Scene;
     gameLayer.addChild(level2InteractionLayer.container);
     level2InteractionLayer.refresh();
     // Upload the panel atlases, rope geometry, and shaders while the scene is
@@ -1884,7 +1890,7 @@ export async function createGroundtruthGame(
   stateText.position.set(W / 2, 294);
   let copyStatusTimeout: number | undefined;
   const connectionUrl = directLevel2 ? `${window.location.origin}${window.location.pathname}?level=2` : window.location.href;
-  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Never substitute a private KORE response for transmit. Use at most one metered diagnostic, sensing, manual, or memory-recall tool per player message. Water and ignition each leave a faint three-digit trace in my log. Until both puzzles are complete, if I ask about the numbers, tell me only to check the log and do not offer memory recall. After both are complete, you may offer the log or a 1.5 AUX memory recall and wait for explicit confirmation. After confirmation, recall only that trace, then transmit its three digits; recall plus transmission costs 2 AUX total. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not routinely begin transmissions with my name; use it only for urgency or emphasis. Do not use em dashes in spoken dialogue.`;
+  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Use at most one metered diagnostic, sensing, or manual tool per player message. After using one metered diagnostic, sensing, or manual tool, call transmit in the same turn to relay its result. Transmit does not count toward that one-tool limit. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
   const writeConnectionPrompt = () => navigator.clipboard.writeText(connectionPrompt);
   const copyPrompt = () => {
     void writeConnectionPrompt().then(() => {
@@ -1944,6 +1950,7 @@ export async function createGroundtruthGame(
   };
 
   let connected = false;
+  let firstTransmissionStarted = false;
   let mainMenu: Container | null = null;
   let screenTransition: ScreenDitherTransition | null = null;
   let demiWakePlayed = false;
@@ -1957,7 +1964,7 @@ export async function createGroundtruthGame(
       void tools.activateGameplay?.();
       connectionOverlayDelay = window.setTimeout(() => {
         connectionOverlayDelay = undefined;
-        showConnectionOverlay(!connected);
+        if (!firstTransmissionStarted) showConnectionOverlay(true);
       }, 2000);
     };
     dialogue.echoDemi(DEMI_WAKE_LINE);
@@ -2159,6 +2166,38 @@ export async function createGroundtruthGame(
       levelTransitionStarted = false;
       return;
     }
+
+    // Retire Level 1 in-place. Keeping the same document preserves the active
+    // WebMCP browser binding while ensuring no Level 1 animation, interaction,
+    // audio, or delayed callback survives into the greenhouse.
+    if (connectionOverlayDelay !== undefined) {
+      window.clearTimeout(connectionOverlayDelay);
+      connectionOverlayDelay = undefined;
+    }
+    sceneAudio.stopSceneSounds();
+    sceneAudio.setPressureWheelMotion(0, 1_000);
+    unsubscribeLevel1();
+    interactionLayer?.destroy();
+    interactionLayer = undefined;
+    compositor?.destroy();
+    compositor = undefined;
+    gameLayer.position.set(0, 0);
+    nextImpactShakeAt = 0;
+    impactShakeEndsAt = 0;
+
+    useLevel1Scene = false;
+    useLevel2Scene = true;
+    if (level2Compositor) level2Compositor.container.visible = true;
+    if (level2InteractionLayer) {
+      level2InteractionLayer.container.visible = true;
+      level2InteractionLayer.resetView();
+      level2InteractionLayer.refresh();
+    }
+    reserve = level2.snapshot().reserve;
+    drawReserve();
+    sceneAudio.setIgnitionHumRate(getBallastRateIndex(level2.snapshot().ignition.rate));
+    writeLevel2Checkpoint(localStorage, level2.snapshot());
+
     const target = new URL(location.href);
     if (isDev) {
       target.searchParams.delete("level");
@@ -2167,7 +2206,14 @@ export async function createGroundtruthGame(
       target.searchParams.delete("scene");
       target.searchParams.set("level", "2");
     }
-    location.assign(target.toString());
+    history.replaceState({}, "", target.toString());
+    window.dispatchEvent(new CustomEvent("groundtruth:levelchange", { detail: { level: "2" } }));
+
+    tools.dispose();
+    toolsRegistrationStarted = false;
+    void registerTools(true, true);
+    enterScene();
+    levelTransitionStarted = false;
   };
   triggerLevelTransition = () => {
     if (levelTransitionStarted) return;
@@ -2186,9 +2232,11 @@ export async function createGroundtruthGame(
 
   let tools: ToolRegistration = { available: false, activeTools: () => [], dispose() {} };
   let toolsRegistrationStarted = false;
-  const registerTools = async (gameplayReady = true) => {
+  const registerTools = async (gameplayReady = true, preserveExistingConnection = false) => {
     if (toolsRegistrationStarted) return;
     toolsRegistrationStarted = true;
+    const initiallyConnected = preserveExistingConnection ? connected : (bootstrapRelay?.connected() ?? false);
+    bootstrapRelay?.release();
     try {
       if (useLevel2Scene) {
         tools = await registerLevel2Tools(document.modelContext, dialogue, level2, {
@@ -2204,11 +2252,11 @@ export async function createGroundtruthGame(
           onEvent: addEvent,
           onWarning: (message) => addEvent("AUX WARNING", message),
           onProcessing: setKoreProcessing
-        }, { requireHandshake: true });
+        }, { requireHandshake: true, initiallyConnected });
       } else tools = await registerLevel1Tools(document.modelContext, dialogue, level1, {
         onStandbyConnected: () => {
           connected = true;
-          stateText.text = "KORE CONNECTED. WAITING FOR DEMI...";
+          stateText.text = "KORE STANDING BY. START THE GAME.";
           connectionHint.visible = false;
         },
         onConnected: () => {
@@ -2225,12 +2273,13 @@ export async function createGroundtruthGame(
           interactionLayer?.refresh();
         },
         onTransmissionStarted: () => {
+          firstTransmissionStarted = true;
           enterSceneWithDither();
         },
         onEvent: addEvent,
         onWarning: (message) => addEvent("AUX WARNING", message),
         onProcessing: setKoreProcessing
-      }, { requireHandshake: true, gameplayReady });
+      }, { requireHandshake: true, gameplayReady, initiallyConnected });
     } catch (error) {
       stateText.text = "WEBMCP REGISTRATION FAILED";
       stateText.tint = C.danger;
@@ -2498,8 +2547,8 @@ export async function createGroundtruthGame(
       stateText.alpha = 1;
     }
     screenTransition?.update(delta);
-    interactionLayer?.update(delta);
-    level2InteractionLayer?.update(delta);
+    if (useLevel1Scene) interactionLayer?.update(delta);
+    if (useLevel2Scene) level2InteractionLayer?.update(delta);
     if (processingIndicator.visible) {
       const pulse = 0.72 + Math.sin(now * 0.01) * 0.28;
       processingIndicator.alpha = pulse;
@@ -2511,9 +2560,15 @@ export async function createGroundtruthGame(
       if (now >= auxDrainPulseEndsAt) auxDrainPulseEndsAt = 0;
     }
     updateImpactShake(now);
-    compositor?.update(delta);
-    level2Compositor?.update(delta);
-    if (useLevel2Scene && !mainMenu?.visible && !startup.visible) level2.dispatch({ type: "TICK", deltaMs: delta });
+    if (useLevel1Scene) compositor?.update(delta);
+    if (useLevel2Scene) level2Compositor?.update(delta);
+    if (useLevel2Scene && !mainMenu?.visible && !startup.visible) {
+      level2.dispatch({
+        type: "TICK",
+        deltaMs: delta,
+        pauseEnvironmentDrain: !connected || koreIndicatorState === "processing"
+      });
+    }
     if (useLevel2Scene) {
       const level2State = level2.snapshot();
       level2Compositor?.setRuntimeState(level2State);

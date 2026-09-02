@@ -6,6 +6,62 @@ import { LEVEL1_WIRES } from "../src/sim/level1";
 import { KORE_OPENING_PAGES, KORE_OPENING_RESPONSE } from "../src/content/level1";
 
 describe("Level 1 WebMCP tool gates", () => {
+  it("inherits a bootstrap standby connection when the full game tools register", async () => {
+    const active = new Map<string, ModelContextTool>();
+    const onStandbyConnected = vi.fn();
+    const modelContext: ModelContext = {
+      registerTool(tool, options) {
+        active.set(tool.name, tool);
+        options?.signal?.addEventListener("abort", () => active.delete(tool.name), { once: true });
+      }
+    };
+    const dialogue = new DialogueEngine({ maxWidth: 400, maxLines: 3, measure: (text) => text.length * 8 });
+    const session = new Level1Session();
+    const registration = await registerLevel1Tools(modelContext, dialogue, session, {
+      onStandbyConnected,
+      onConnected() {}, onEvent() {}, onWarning() {}, onProcessing() {}
+    }, { gameplayReady: false, requireHandshake: true, initiallyConnected: true });
+
+    expect(onStandbyConnected).toHaveBeenCalledOnce();
+    expect(active.has("connect")).toBe(true);
+
+    registration.dispose();
+  });
+
+  it("automatically opens the relay when a standby KORE connection becomes active", async () => {
+    const active = new Map<string, ModelContextTool>();
+    const modelContext: ModelContext = {
+      registerTool(tool, options) {
+        active.set(tool.name, tool);
+        options?.signal?.addEventListener("abort", () => active.delete(tool.name), { once: true });
+      }
+    };
+    const dialogue = new DialogueEngine({ maxWidth: 400, maxLines: 3, measure: (text) => text.length * 8 });
+    const session = new Level1Session();
+    const onTransmissionStarted = vi.fn();
+    const registration = await registerLevel1Tools(modelContext, dialogue, session, {
+      onConnected() {
+        session.dispatch({ type: "DEMI_WAKE_RESPONSE", message: "I hear you. Stop!" });
+      },
+      onTransmissionStarted,
+      onEvent() {}, onWarning() {}, onProcessing() {}
+    }, { gameplayReady: false });
+
+    await expect(active.get("connect")?.execute()).resolves.toMatchObject({
+      connected: true,
+      waitingForDemi: true,
+      nextAction: expect.stringContaining("do not post any private status message")
+    });
+
+    await registration.activateGameplay?.();
+
+    expect(onTransmissionStarted).toHaveBeenCalledOnce();
+    expect(session.snapshot().foundation.openingResponseRelayed).toBe(true);
+    expect(dialogue.snapshot().channels.KORE.current?.body).toBe(KORE_OPENING_RESPONSE);
+
+    registration.dispose();
+  });
+
   it("renders the authored KORE opening as short pages even when the agent paraphrases it", async () => {
     const active = new Map<string, ModelContextTool>();
     const modelContext: ModelContext = {
@@ -97,7 +153,10 @@ describe("Level 1 WebMCP tool gates", () => {
     await expect(active.get("signal_processing")?.execute()).resolves.toMatchObject({
       nextAction: expect.stringContaining("only if her latest response explicitly agrees")
     });
-    await active.get("self_report")?.execute();
+    const report = await active.get("self_report")?.execute() as Record<string, unknown>;
+    expect(report.nextAction).toEqual(expect.stringContaining("Call transmit now"));
+    expect(report.nextAction).toEqual(expect.stringContaining("Stop there"));
+    expect(String(report.nextAction)).not.toMatch(/physically inspect|use it as a constraint/i);
     await expect(active.get("read_manual")?.execute({ topic: "bus_loom" })).rejects.toThrow("Only one metered");
     await active.get("transmit")?.execute({ message: "Hold there." });
 

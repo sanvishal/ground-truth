@@ -92,6 +92,21 @@ describe("level 2 simulation", () => {
     expect(state.reserve).toBe(reserve - 0.5);
   });
 
+  it("pauses environmental AUX drain while KORE is reconnecting or processing", () => {
+    let state = createInitialLevel2State(42);
+    state = apply(state, { type: "CRANK_PRESSURE", amount: 100 });
+    const reserve = state.reserve;
+    state = apply(state, { type: "TICK", deltaMs: 4_000 });
+    expect(state.environmentAlarmMs).toBe(4_000);
+
+    state = apply(state, { type: "TICK", deltaMs: 15_000, pauseEnvironmentDrain: true });
+    expect(state.reserve).toBe(reserve);
+    expect(state.environmentAlarmMs).toBe(4_000);
+
+    state = apply(state, { type: "TICK", deltaMs: 1_000 });
+    expect(state.reserve).toBe(reserve - 0.25);
+  });
+
   it("treats an above-band temperature as good while correct couplings cool it", () => {
     let state = createInitialLevel2State(42);
     state = { ...state, temperature: 70 };

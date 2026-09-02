@@ -45,11 +45,17 @@ export function mountLevel1CompositorLab(proof: Level1CompositorProof): void {
   root.prepend(section);
   render();
 
-  window.addEventListener("keydown", (event) => {
+  const onKeyDown = (event: KeyboardEvent) => {
     const stage = Number(event.key) as Level1LightingStage;
     if (stage >= 1 && stage <= 5) {
       proof.setStage(stage);
       render();
     }
-  });
+  };
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("groundtruth:levelchange", (event) => {
+    if ((event as CustomEvent<{ level?: string }>).detail?.level !== "2") return;
+    window.removeEventListener("keydown", onKeyDown);
+    section.remove();
+  }, { once: true });
 }

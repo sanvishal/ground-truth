@@ -74,7 +74,7 @@ export interface Level2State {
 }
 
 export type Level2Action =
-  | { type: "TICK"; deltaMs: number } | { type: "SPEND_RESERVE"; amount: number; reason: string }
+  | { type: "TICK"; deltaMs: number; pauseEnvironmentDrain?: boolean } | { type: "SPEND_RESERVE"; amount: number; reason: string }
   | { type: "SET_OVERLAY"; open: boolean } | { type: "CRANK_PRESSURE"; amount: number }
   | { type: "SET_IGNITION_PANEL"; open: boolean }
   | { type: "SET_THERMAL_PANEL"; open: boolean }
@@ -381,7 +381,9 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
       const { thermal, temperature } = thermalAdvance;
       const { ignition, missCount: ignitionMissCount, effect: ignitionEffect } = advanceIgnition(state, action.deltaMs);
       const abnormal = isEnvironmentAbnormal({ pressure, pressureControl, temperature, thermal });
-      const alarmTotalMs = abnormal ? state.environmentAlarmMs + Math.max(0, action.deltaMs) : 0;
+      const alarmTotalMs = abnormal
+        ? state.environmentAlarmMs + (action.pauseEnvironmentDrain ? 0 : Math.max(0, action.deltaMs))
+        : 0;
       const alarmCharges = Math.floor(alarmTotalMs / 5_000);
       const environmentAlarmMs = abnormal ? alarmTotalMs % 5_000 : 0;
       const stable = safe(pressure, pressureControl.band) && safe(temperature, TEMPERATURE_SAFE_BAND);

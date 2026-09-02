@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DialogueEngine } from "../src/dialogue/engine";
 import { Level2Session } from "../src/runtime/level2-session";
 import { registerLevel2Tools } from "../src/tools/webmcp-level2";
@@ -17,13 +17,27 @@ function harness() {
 }
 
 describe("Level 2 WebMCP boundaries", () => {
+  it("inherits a bootstrap connection when the Level 2 tools register", async () => {
+    const { active, modelContext, dialogue, session } = harness();
+    const onConnected = vi.fn();
+    const registration = await registerLevel2Tools(modelContext, dialogue, session, {
+      onConnected, onEvent() {}, onWarning() {}, onProcessing() {}
+    }, { requireHandshake: true, initiallyConnected: true });
+
+    expect(onConnected).toHaveBeenCalledOnce();
+    expect(active.has("connect")).toBe(false);
+    expect(active.has("signal_processing")).toBe(true);
+    registration.dispose();
+  });
+
   it("never exposes pressure or thermal state to KORE", async () => {
     const { active, modelContext, dialogue, session } = harness();
     const registration = await registerLevel2Tools(modelContext, dialogue, session, {
       onConnected() {}, onEvent() {}, onWarning() {}, onProcessing() {}
     }, { requireHandshake: true });
     expect([...active.keys()]).toEqual(["connect"]);
-    await active.get("connect")?.execute();
+    const connectionBrief = await active.get("connect")?.execute();
+    expect(JSON.stringify(connectionBrief)).not.toMatch(/water|ignition|timing line/i);
     expect([...active.keys()]).not.toContain("pressure");
     expect([...active.keys()]).not.toContain("temperature");
     const report = await active.get("self_report")?.execute() as Record<string, unknown>;
@@ -61,7 +75,7 @@ describe("Level 2 WebMCP boundaries", () => {
     registration.dispose();
   });
 
-  it("recalls each solved console trace only after confirmation for two AUX including transmission", async () => {
+  it("searches ship logs for both three-digit entries only after confirmation", async () => {
     const { active, modelContext, dialogue, session } = harness();
     session.dispatch({ type: "DEV_SOLVE_WATER" });
     session.dispatch({ type: "DEV_SOLVE_IGNITION" });
@@ -74,32 +88,28 @@ describe("Level 2 WebMCP boundaries", () => {
     const processing = await active.get("signal_processing")?.execute() as Record<string, unknown>;
     expect(JSON.stringify(processing)).not.toContain(waterDigits);
     expect(JSON.stringify(processing)).not.toContain(ignitionDigits);
-    await expect(active.get("recall_console_code")?.execute({ source: "water", confirmed: false })).rejects.toThrow(/confirm/i);
+    await expect(active.get("search_ship_logs")?.execute({ confirmed: false })).rejects.toThrow(/confirm/i);
     expect(session.snapshot().reserve).toBe(reserve);
-    const recalled = await active.get("recall_console_code")?.execute({ source: "water", confirmed: true }) as Record<string, unknown>;
-    expect(recalled.digits).toBe(waterDigits);
+    const search = await active.get("search_ship_logs")?.execute({ confirmed: true }) as Record<string, unknown>;
+    expect(search.codes).toEqual([waterDigits, ignitionDigits]);
+    expect(JSON.stringify(search)).not.toMatch(/water|ignition/i);
     expect(session.snapshot().reserve).toBe(reserve - 1.5);
-    await active.get("transmit")?.execute({ message: `The trace was ${waterDigits}.` });
+    await active.get("transmit")?.execute({ message: `The log entries were ${waterDigits} and ${ignitionDigits}.` });
     expect(session.snapshot().reserve).toBe(reserve - 2);
-    await active.get("signal_processing")?.execute();
-    const ignitionRecall = await active.get("recall_console_code")?.execute({ source: "ignition", confirmed: true }) as Record<string, unknown>;
-    expect(ignitionRecall.digits).toBe(ignitionDigits);
-    await active.get("transmit")?.execute({ message: `The trace was ${ignitionDigits}.` });
-    expect(session.snapshot().reserve).toBe(reserve - 4);
     registration.dispose();
   });
 
-  it("does not expose console recall until both trace-producing puzzles are complete", async () => {
+  it("does not expose ship-log search until both three-digit entries exist", async () => {
     const { active, modelContext, dialogue, session } = harness();
     const registration = await registerLevel2Tools(modelContext, dialogue, session, {
       onConnected() {}, onEvent() {}, onWarning() {}, onProcessing() {}
     });
-    expect(active.has("recall_console_code")).toBe(false);
+    expect(active.has("search_ship_logs")).toBe(false);
     session.dispatch({ type: "DEV_SOLVE_WATER" });
-    expect(active.has("recall_console_code")).toBe(false);
+    expect(active.has("search_ship_logs")).toBe(false);
     session.dispatch({ type: "DEV_SOLVE_IGNITION" });
     await active.get("signal_processing")?.execute();
-    expect(active.has("recall_console_code")).toBe(true);
+    expect(active.has("search_ship_logs")).toBe(true);
     registration.dispose();
   });
 

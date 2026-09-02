@@ -20,4 +20,8 @@ export function mountRuntimeTabs(defaultLevel: "1" | "2"): void {
   }
   root.prepend(tabs);
   select(defaultLevel);
+  window.addEventListener("groundtruth:levelchange", (event) => {
+    const level = (event as CustomEvent<{ level?: string }>).detail?.level;
+    if (level === "1" || level === "2") select(level);
+  });
 }

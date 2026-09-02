@@ -13,21 +13,21 @@ interface Hooks {
   onProcessing(active: boolean): void;
 }
 
-type ToolKey = "connect" | "signal_processing" | "transmit" | "self_report" | "read_manual" | "listen" | "recall_console_code" | "set_ballast_drive" | "widen_strike_window";
+type ToolKey = "connect" | "signal_processing" | "transmit" | "self_report" | "read_manual" | "listen" | "search_ship_logs" | "set_ballast_drive" | "widen_strike_window";
 
-const COST = { transmit: 0.5, selfReport: 1, manual: 1, listen: 1, recall: 1.5 } as const;
+const COST = { transmit: 0.5, selfReport: 1, manual: 1, listen: 1, logSearch: 1.5 } as const;
 
 export async function registerLevel2Tools(
   modelContext: ModelContext | undefined,
   dialogue: DialogueEngine,
   session: Level2Session,
   hooks: Hooks,
-  options: { requireHandshake?: boolean } = {}
+  options: { requireHandshake?: boolean; initiallyConnected?: boolean } = {}
 ): Promise<ToolRegistration> {
   if (!modelContext?.registerTool) return { available: false, activeTools: () => [], dispose() {} };
   const controllers = new Map<ToolKey, AbortController>();
   let disposed = false;
-  let connected = options.requireHandshake ? false : true;
+  let connected = options.initiallyConnected ?? (options.requireHandshake ? false : true);
   let metered = false;
   let transmitted = false;
 
@@ -68,12 +68,12 @@ export async function registerLevel2Tools(
           processing: true,
           auxCost: 0,
           nextAction: !state.water.solved
-            ? `The water panel is visible only to Demi. The reclamation manual requires stage order ${state.water.requiredOrder.join(" then ")}. Relay the order without claiming to see the board. If she asks for console numbers, tell her only to check her log; do not offer memory recall before both water and ignition are complete.`
+            ? `One surviving module record lists reclamation stages in this order: ${state.water.requiredOrder.join(" then ")}. Relay only that record and do not claim to see the local hardware.`
             : !state.ignition.solved
               ? state.ignition.runCount === 0
-                ? "The ignition sequencer is local to Demi. She must pull its starter quickly, then strike the four displayed keys as contacts reach the line. Do not change ballast drive unless Demi asks. If she asks for console numbers, tell her only to check her log; do not offer memory recall before ignition is complete."
-                : "If Demi says the charge bar is not rising enough, explain that KORE can raise ballast drive one step at a time. Only change it when she asks. If she explicitly asks for slower notes or a wider timing window, widen the strike window; never enable that automatically after failures. If she asks for console numbers, tell her only to check her log; do not offer memory recall before ignition is complete."
-              : "The transfer pod keypad is always accessible and requires the two faint three-digit console traces. KORE retained both but must not reveal either automatically. If Demi asks for a trace, offer two choices: check the log, or explicitly authorize a 1.5 AUX memory recall. Wait for confirmation before recalling it."
+                ? "A local timed sequence is active outside KORE's view. KORE can change ballast drive only if Demi asks. Do not describe the local controls, contacts, or timing marker."
+                : "If Demi says the charge is rising too slowly, KORE can raise ballast drive one step when asked. If she explicitly asks for easier timing, widen the response window. Do not describe the local controls, contacts, or timing marker."
+              : "A ship-log search for three-digit entries is now available. If Demi asks for codes, offer to search the logs for 1.5 AUX and wait for explicit confirmation before searching. Do not name or infer the systems that produced the entries."
         };
       }
     },
@@ -141,45 +141,41 @@ export async function registerLevel2Tools(
         spend(COST.listen, "listen");
         const state = session.snapshot();
         return {
-          waterPump: state.water.solved ? "steady flow" : "idle",
-          ballastDrive: state.ignition.solved ? "ignition holding" : `${state.ignition.rate} cadence`,
+          pumpFlow: state.water.solved ? "steady" : "idle",
+          ballastCadence: state.ignition.solved ? "holding" : state.ignition.rate,
           pressure: "not inferable from acoustic sweep"
         };
       }
     },
-    recall_console_code: {
-      name: "recall_console_code",
-      description: "Recall one faint three-digit console trace from KORE's retained memory, only after both water and ignition are complete. First offer Demi the log or a 1.5 AUX recall, then wait. Call this only after Demi explicitly confirms the spend. The subsequent audible transmit costs another 0.5 AUX, for 2 AUX total. Never reveal either code through signal_processing, commentary, or an unconfirmed call.",
+    search_ship_logs: {
+      name: "search_ship_logs",
+      description: "Search Sanctuary's recent logs for recorded three-digit entries. This tool appears only when complete entries exist. Offer the 1.5 AUX search and wait for Demi's explicit confirmation before calling it. The subsequent audible transmit costs another 0.5 AUX, for 2 AUX total. Do not identify or infer which local systems produced the entries.",
       inputSchema: {
         type: "object",
         properties: {
-          source: { type: "string", enum: ["water", "ignition"] },
           confirmed: { type: "boolean", enum: [true] }
         },
-        required: ["source", "confirmed"],
+        required: ["confirmed"],
         additionalProperties: false
       },
       async execute(args = {}) {
-        if (args.confirmed !== true) throw new Error("Demi must explicitly confirm the 1.5 AUX memory recall first.");
-        const source = args.source;
-        if (source !== "water" && source !== "ignition") throw new TypeError("Unknown console trace source.");
+        if (args.confirmed !== true) throw new Error("Demi must explicitly confirm the 1.5 AUX ship-log search first.");
         const state = session.snapshot();
-        if (!state.water.solved || !state.ignition.solved) throw new Error("Both water and ignition must be complete before KORE can offer memory recall.");
-        if (!state[source].solved) throw new Error(`The ${source} console trace has not appeared yet.`);
-        if (state.reserve < COST.recall + COST.transmit) throw new Error("Two AUX are required to recall and audibly transmit this trace.");
-        const auxCost = spend(COST.recall, `${source} console recall`);
-        hooks.onEvent("KORE MEMORY RECALL", `${source.toUpperCase()} TRACE`);
+        if (!state.water.solved || !state.ignition.solved) throw new Error("No complete three-digit ship-log entries are available yet.");
+        if (state.reserve < COST.logSearch + COST.transmit) throw new Error("Two AUX are required to search and audibly transmit the result.");
+        const auxCost = spend(COST.logSearch, "three-digit ship-log search");
+        const codes = [state.water.digits, state.ignition.digits];
+        hooks.onEvent("SHIP LOG SEARCH", "THREE-DIGIT ENTRIES FOUND");
         return {
-          source,
-          digits: state[source].digits,
+          codes,
           auxCost,
-          nextAction: "Call transmit now to tell Demi these three digits. Do not include the other trace."
+          nextAction: "Call transmit now to read both three-digit entries in the listed order. Do not identify or infer their source systems."
         };
       }
     },
     set_ballast_drive: {
       name: "set_ballast_drive",
-      description: "Change ignition cadence only after Demi asks. Raising drive is limited to one step per call and costs 1 AUX. Lowering it is immediate and free.",
+      description: "Change ballast-drive cadence only after Demi asks. Raising drive is limited to one step per call and costs 1 AUX. Lowering it is immediate and free. Do not describe Demi's local display or timing marker.",
       inputSchema: {
         type: "object",
         properties: { rate: { type: "string", enum: [...BALLAST_RATES] } },
@@ -198,14 +194,14 @@ export async function registerLevel2Tools(
           rate,
           auxCost: cost,
           dutyWarning: transition.effects.includes("BALLAST_DUTY_WARNING")
-            ? "Drive is above continuous-duty limits. Complete ignition promptly."
+            ? "Drive is above continuous-duty limits. Complete the local sequence promptly."
             : undefined
         };
       }
     },
     widen_strike_window: {
       name: "widen_strike_window",
-      description: "Widen the ignition strike timing only when Demi explicitly asks for a larger timing window, easier timing, or slower contacts. Never call automatically after failed passes. Costs 0 AUX.",
+      description: "Widen the local response timing only when Demi explicitly asks for a larger window or easier timing. Never describe her display or call this automatically after failed attempts. Costs 0 AUX.",
       inputSchema: EMPTY,
       async execute() {
         const transition = session.dispatch({ type: "ENABLE_IGNITION_ASSIST" });
@@ -220,7 +216,7 @@ export async function registerLevel2Tools(
     if (disposed) return;
     const state = session.snapshot();
     const wanted = new Set<ToolKey>(connected
-      ? ["signal_processing", "transmit", "self_report", "read_manual", "listen", "set_ballast_drive", "widen_strike_window", ...(state.water.solved && state.ignition.solved ? ["recall_console_code" as const] : [])]
+      ? ["signal_processing", "transmit", "self_report", "read_manual", "listen", "set_ballast_drive", "widen_strike_window", ...(state.water.solved && state.ignition.solved ? ["search_ship_logs" as const] : [])]
       : ["connect"]);
     for (const [key, controller] of controllers) {
       if (wanted.has(key)) continue;
@@ -236,6 +232,7 @@ export async function registerLevel2Tools(
     }
   };
   await sync();
+  if (connected && options.initiallyConnected) hooks.onConnected();
   return {
     available: true,
     activeTools: () => [...controllers.keys()],

@@ -191,6 +191,37 @@ export class Level1SceneAudio {
     this.syncIgnitionHum();
   }
 
+  stopSceneSounds(): void {
+    this.menuActive = false;
+    this.sceneActive = false;
+    this.coldOpenActive = false;
+    this.alarmActive = false;
+    this.coldOpenAlarmActive = false;
+    this.ignitionHumRate = null;
+    this.pressureWheelLevel = 0;
+    for (const audio of [
+      this.ambient,
+      this.alarm,
+      this.panelOpen,
+      this.panelClose,
+      this.panelError,
+      this.controlClunk,
+      this.puzzleCorrect,
+      this.pressureWheel,
+      this.ignitionStarter,
+      ...this.interfaceClicks,
+      ...this.buttonPresses,
+      ...this.rhythmHits,
+      ...this.rhythmMisses,
+      ...this.sparks,
+      ...this.steam
+    ]) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    this.syncIgnitionHum();
+  }
+
   private canPlay(): boolean {
     return this.unlocked && this.sceneActive && this.visible && !this.muted;
   }

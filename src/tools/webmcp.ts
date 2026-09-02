@@ -96,7 +96,7 @@ export async function registerLevel1Tools(
   dialogue: DialogueEngine,
   session: Level1Session,
   hooks: Hooks,
-  options: { requireHandshake?: boolean; gameplayReady?: boolean } = {}
+  options: { requireHandshake?: boolean; gameplayReady?: boolean; initiallyConnected?: boolean } = {}
 ): Promise<ToolRegistration> {
   if (!modelContext?.registerTool) return { available: false, activeTools: () => [], dispose() {} };
 
@@ -106,7 +106,7 @@ export async function registerLevel1Tools(
   let meteredToolUsed = false;
   let audibleTransmitted = false;
   let firstTransmissionStarted = false;
-  let relaySessionConnected = options.requireHandshake ? false : session.snapshot().foundation.connected;
+  let relaySessionConnected = options.initiallyConnected ?? (options.requireHandshake ? false : session.snapshot().foundation.connected);
   let gameplayReady = options.gameplayReady ?? true;
   let gameplayConnectionAnnounced = false;
 
@@ -131,10 +131,33 @@ export async function registerLevel1Tools(
     meteredToolUsed = true;
   };
 
+  const deliverAuthoredOpening = async (heard = "") => {
+    const previousHeard = session.snapshot().foundation.lastHeardMessage;
+    requireSpend(session, TOOL_COST.transmit, "transmit");
+    const transition = session.dispatch({ type: "RELAY_OPENING_RESPONSE", heardMessage: heard });
+    if (!transition.ok) throw new Error(transition.error);
+    audibleTransmitted = true;
+    if (!firstTransmissionStarted) {
+      firstTransmissionStarted = true;
+      hooks.onTransmissionStarted?.();
+    }
+    hooks.onProcessing(false);
+    if (heard && heard !== previousHeard) dialogue.echoDemi(heard, performance.now(), "transmit");
+    dialogue.receiveKore(KORE_OPENING_RESPONSE, performance.now(), "transmit");
+    hooks.onEvent("KORE TRANSMITTED", `${KORE_OPENING_RESPONSE.length} characters`);
+    await syncNow();
+    return {
+      delivered: true,
+      characters: KORE_OPENING_RESPONSE.length,
+      pages: dialogue.pageCount(KORE_OPENING_RESPONSE),
+      audible: true
+    };
+  };
+
   const specs = (): Record<ToolKey, ModelContextTool> => ({
     connect: {
       name: "connect",
-      description: "Connect KORE to Sanctuary's damaged local relay. If Demi has not started the game, remain on standby without clicking or advancing the page. This tool never inspects the room for her.",
+      description: "Connect KORE to Sanctuary's damaged local relay. If Demi has not started the game, remain on standby without clicking or advancing the page. The game will deliver KORE's authored opening automatically when she starts. Do not post a private status message or ask her to resend the prompt. This tool never inspects the room for her.",
       inputSchema: EMPTY,
       async execute() {
         if (!relaySessionConnected) {
@@ -146,7 +169,7 @@ export async function registerLevel1Tools(
           return {
             connected: true,
             waitingForDemi: true,
-            nextAction: "Demi has not started the game yet. Wait for her to begin. Do not click, advance, or operate the page for her."
+            nextAction: "Demi has not started the game yet. Remain on standby. The game will deliver KORE's authored opening automatically when she starts. Do not click or operate the page, do not ask her to resend the prompt, and do not post any private status message in the Codex task."
           };
         }
         const alreadyConnected = await establishGameplayConnection();
@@ -192,7 +215,7 @@ export async function registerLevel1Tools(
           : state.spiral.breaker4Pulled && state.spiral.junction === "clean" && state.spiral.regulator === "precise" && !state.door.diverted
             ? "The stable bus now has enough surplus for the door motor, but KORE reads no motor draw yet. Relay that power constraint only. Do not name a local control."
           : state.door.diverted && !state.door.opened
-            ? "The door feed is live. If Demi's latest message directly reports that the doorway is clear and explicitly authorizes the commit, call commit_door now with doorway_clear. Otherwise ask once for both facts in one reply: inspect the doorway and, if it is clear, say 'doorway clear, commit.' Do not ask for another confirmation after that authorization. Do not spend AUX on another manual page."
+            ? "The door feed is live. Call commit_door only if Demi's latest message says 'doorway clear, commit.' Otherwise call transmit and say exactly: 'Inspect the doorway. If it is clear and you want me to open it, say: doorway clear, commit.' Do not ask for separate authorization or clearance messages. Do not spend AUX on another manual page."
           : null;
         return { processing: true, audible: false, auxCost: 0, nextAction };
       }
@@ -216,11 +239,12 @@ export async function registerLevel1Tools(
         const message = typeof args.message === "string" ? args.message.trim() : "";
         const heard = typeof args.heard_message === "string" ? args.heard_message.trim() : "";
         if (!message) throw new TypeError("transmit.message must not be empty");
+        const first = !session.snapshot().foundation.openingResponseRelayed;
+        if (first) return deliverAuthoredOpening(heard);
         const previousHeard = session.snapshot().foundation.lastHeardMessage;
         requireSpend(session, TOOL_COST.transmit, "transmit");
-        const first = !session.snapshot().foundation.openingResponseRelayed;
-        const deliveredMessage = first ? KORE_OPENING_RESPONSE : message;
-        const transition = session.dispatch({ type: first ? "RELAY_OPENING_RESPONSE" : "RELAY_MESSAGE", heardMessage: heard });
+        const deliveredMessage = message;
+        const transition = session.dispatch({ type: "RELAY_MESSAGE", heardMessage: heard });
         if (!transition.ok) throw new Error(transition.error);
         audibleTransmitted = true;
         if (!firstTransmissionStarted) {
@@ -250,7 +274,7 @@ export async function registerLevel1Tools(
         return {
           ...FOUNDATION_DIAGNOSTICS,
           calibrationResponse: before.wires.calibrationOrder,
-          nextAction: `Relay the diagnostic constraint and the calibration response ${before.wires.calibrationOrder.join(", ")}. Do not claim the sequence is unavailable.`
+          nextAction: `Call transmit now. Report the internal readings plainly, then say: "One calibration response remains stable: ${before.wires.calibrationOrder.join(", ")}." Stop there. Do not speculate about what the numbers correspond to or tell Demi how to use them. Transmit is required and is separate from the one-metered-diagnostic limit.`
         };
       }
     },
@@ -365,7 +389,7 @@ export async function registerLevel1Tools(
     },
     commit_door: {
       name: "commit_door",
-      description: "Irreversibly energize the blast-door motor after clean power diversion. Demi must directly inspect the doorway and explicitly authorize the commit. Both facts may be provided together in one message, such as 'doorway clear, commit.' Do not ask for another confirmation after that. Costs 2 AUX.",
+      description: "Irreversibly energize the blast-door motor after clean power diversion. Ask Demi exactly: 'Inspect the doorway. If it is clear and you want me to open it, say: doorway clear, commit.' Call this tool when her latest message contains that phrase. Do not collect authorization and clearance in separate messages. Costs 2 AUX.",
       inputSchema: {
         type: "object",
         properties: {
@@ -430,13 +454,21 @@ export async function registerLevel1Tools(
   });
 
   await syncNow();
+  if (relaySessionConnected) {
+    if (gameplayReady) await establishGameplayConnection();
+    else hooks.onStandbyConnected?.();
+  }
 
   return {
     available: true,
     activeTools: () => [...controllers.keys()],
     async activateGameplay() {
+      const resumeStandbyConnection = relaySessionConnected && !gameplayReady;
       gameplayReady = true;
       await establishGameplayConnection();
+      if (resumeStandbyConnection && !session.snapshot().foundation.openingResponseRelayed) {
+        await deliverAuthoredOpening();
+      }
       await syncNow();
     },
     dispose() {

@@ -194,10 +194,17 @@ export function mountLevel1RuntimeLab(
 
   const unsubscribe = session.subscribe((transition) => render(transition.state));
   const toolRefresh = window.setInterval(() => render(session.snapshot()), 250);
-  window.addEventListener("beforeunload", () => {
+  let active = true;
+  const teardown = () => {
+    if (!active) return;
+    active = false;
     window.clearInterval(toolRefresh);
     unsubscribe();
+  };
+  window.addEventListener("groundtruth:levelchange", (event) => {
+    if ((event as CustomEvent<{ level?: string }>).detail?.level === "2") teardown();
   }, { once: true });
+  window.addEventListener("beforeunload", teardown, { once: true });
   shell.append(header, controlGrid, trace);
   root.prepend(shell);
   render(session.snapshot());
