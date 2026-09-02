@@ -73,6 +73,23 @@ export class DialogueEngine {
     };
   }
 
+  reset(): void {
+    this.accumulator = 0;
+    this.pendingKore = [];
+    this.pendingReactions = [];
+    this.autoAdvanceDemiMessageId = null;
+    this.autoAdvanceDemiRemainingMs = 0;
+    this.autoAdvanceDemiDelayMs = 2000;
+    this.transientDemiActive = false;
+    this.transientDemiReturn = null;
+    this.channels = {
+      KORE: { speaker: "KORE", current: null, queue: [], unread: false },
+      DEMI: { speaker: "DEMI", current: null, queue: [], unread: false }
+    };
+    this.activeSpeaker = "KORE";
+    this.emit();
+  }
+
   private emit(): void {
     this.revision += 1;
     const snapshot = this.snapshot();

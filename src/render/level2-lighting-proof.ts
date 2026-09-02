@@ -58,8 +58,14 @@ export function createLevel2LightingProof(
   const container = new Container();
   container.hitArea = new Rectangle(0, 0, SCENE_WIDTH, SCENE_HEIGHT);
 
+  const filterOverscan = 8;
   const backdrop = new Graphics()
-    .rect(0, 0, SCENE_WIDTH, SCENE_HEIGHT)
+    .rect(
+      -filterOverscan,
+      -filterOverscan,
+      SCENE_WIDTH + filterOverscan * 2,
+      SCENE_HEIGHT + filterOverscan * 2
+    )
     .fill(0x020407);
 
   const portholeField = new Container();
@@ -126,7 +132,7 @@ export function createLevel2LightingProof(
   const growLight: TubeLightSettings = {
     id: "level2-grow-array",
     label: "GROW ARRAY",
-    x: 406,
+    x: 426,
     y: 32,
     length: 126,
     reach: 650,
@@ -163,14 +169,28 @@ export function createLevel2LightingProof(
   let ambientColor = 0x3a362e;
   let ambientStrength = 0.1;
   let ambientTargetStrength = 0.1;
-  room.filters = [lighting];
+  // Filter one fixed, opaque scene-sized surface rather than the transparent
+  // room sprite alone. That keeps both triangles of Pixi's filter quad backed
+  // by real pixels while the scene is shaken or the renderer is resized.
+  const litRoom = new Container();
+  litRoom.addChild(backdrop, room);
+  litRoom.filters = [lighting];
+  litRoom.filterArea = new Rectangle(
+    -filterOverscan,
+    -filterOverscan,
+    SCENE_WIDTH + filterOverscan * 2,
+    SCENE_HEIGHT + filterOverscan * 2
+  );
+  lighting.clipToViewport = false;
 
   const sparks = createLevel1SparkSystem(soundEvents.sparkBurst, LEVEL2_SPARK_EMITTERS);
   sparks.setStage(2);
   const steam = createLevel1SteamSystem(soundEvents.steamJetStart, LEVEL2_STEAM_EMITTERS);
   steam.setStage(4);
 
-  container.addChild(backdrop, portholeField, portholeMask, room, steam.container, sparks.container);
+  // The porthole is composited above the lit base so its star field is not
+  // tinted by the room lamps. Its authored mask stays locked to the window.
+  container.addChild(litRoom, portholeField, portholeMask, steam.container, sparks.container);
 
   let clock = 0;
   let farTravel = 0;
@@ -186,7 +206,10 @@ export function createLevel2LightingProof(
     container,
     setRuntimeState(state) {
       const environmentAbnormal = isEnvironmentAbnormal(state);
-      room.texture = environmentAbnormal ? alarmRoomTexture : roomTexture;
+      const nextRoomTexture = environmentAbnormal ? alarmRoomTexture : roomTexture;
+      // This runs every frame. Reassigning an unchanged texture needlessly
+      // invalidates the filtered sprite's geometry and render bounds.
+      if (room.texture !== nextRoomTexture) room.texture = nextRoomTexture;
       growTargetColor = environmentAbnormal ? 0xe1322f : state.ignition.solved ? 0x82c98a : 0x5fba69;
       // Red carries much less perceived luminance than the powered green, so it
       // needs a stronger multiplier to produce an equally readable room throw.
@@ -240,7 +263,8 @@ export function createLevel2LightingProof(
       steam.update(deltaMs);
     },
     destroy() {
-      room.filters = [];
+      litRoom.filters = [];
+      litRoom.filterArea = undefined;
       sparks.destroy();
       steam.destroy();
       lighting.destroy();

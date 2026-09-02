@@ -77,7 +77,7 @@ describe("level 2 simulation", () => {
     expect(Math.sign(state.pressureControl.drift)).toBe(-Math.sign(initialDrift));
   });
 
-  it("drains 0.5 AUX for every five continuous seconds of abnormal pressure", () => {
+  it("drains 0.25 AUX for every five continuous seconds when either environment control is abnormal", () => {
     let state = createInitialLevel2State(42);
     state = apply(state, { type: "CRANK_PRESSURE", amount: 100 });
     expect(isEnvironmentAbnormal(state)).toBe(true);
@@ -86,10 +86,10 @@ describe("level 2 simulation", () => {
     expect(state.reserve).toBe(reserve);
     expect(state.environmentAlarmMs).toBe(4_999);
     state = apply(state, { type: "TICK", deltaMs: 1 });
-    expect(state.reserve).toBe(reserve - 0.5);
+    expect(state.reserve).toBe(reserve - 0.25);
     expect(state.environmentAlarmMs).toBe(0);
     state = apply(state, { type: "TICK", deltaMs: 5_000 });
-    expect(state.reserve).toBe(reserve - 1);
+    expect(state.reserve).toBe(reserve - 0.5);
   });
 
   it("treats an above-band temperature as good while correct couplings cool it", () => {
@@ -178,11 +178,11 @@ describe("level 2 simulation", () => {
     expect(apply(first, { type: "SET_BALLAST_RATE", rate: "elevated" }).ignition.pattern).toEqual(pattern);
   });
 
-  it("makes nominal unwinnable while a perfect high-rate pass ignites", () => {
+  it("makes nominal unwinnable while the first requested speed increase can ignite", () => {
     expect(runPerfectPass(createInitialLevel2State(22), "nominal").ignition.solved).toBe(false);
-    const high = runPerfectPass(createInitialLevel2State(22), "high");
-    expect(high.ignition.solved).toBe(true);
-    expect(high.ignition.charge).toBeGreaterThanOrEqual(100);
+    const elevated = runPerfectPass(createInitialLevel2State(22), "elevated");
+    expect(elevated.ignition.solved).toBe(true);
+    expect(elevated.ignition.charge).toBeGreaterThanOrEqual(100);
   });
 
   it("drains exactly 0.1 AUX for each ignition mistake", () => {

@@ -4,8 +4,8 @@ export const LEVEL2_CONNECT_BRIEF = [
   "Demi alone can operate pressure, water, the ignition sequencer, and the pod. Never claim to see a local control.",
   "KORE has no tool that reads or changes pressure. Trust Demi's visible observations for that system.",
   "Ignition is cooperative. Demi strikes the local contacts. KORE can change ballast drive only when Demi asks, one upward step at a time. KORE may widen the strike window only after Demi explicitly asks for easier timing.",
-  "Water and ignition each leave one faint three-digit trace in Demi's log. KORE retains both traces, but never volunteers them. If Demi asks for one, offer the free log or a 1.5 AUX memory recall and wait for explicit confirmation. Recalling costs 1.5 AUX; transmitting it costs another 0.5 AUX.",
-  "Only transmit is audible to Demi. Do not use em dashes in spoken dialogue."
+  "Water and ignition each leave one faint three-digit trace in Demi's log. Until both systems are complete, direct questions about those traces only to the log and do not offer memory recall. Once both are complete, KORE may offer either checking the log or an explicitly confirmed 1.5 AUX memory recall. Recalling costs 1.5 AUX; transmitting it costs another 0.5 AUX.",
+  "Only transmit is audible to Demi. Do not use em dashes in spoken dialogue. Do not routinely begin transmissions with Demi's name; reserve it for urgency or emphasis."
 ].join(" ");
 
 export const LEVEL2_MANUAL_TOPICS = ["specimen_record", "emitter_spec", "module_systems"] as const;

@@ -63,16 +63,17 @@ export async function registerLevel2Tools(
         transmitted = false;
         hooks.onProcessing(true);
         const state = session.snapshot();
+        await sync();
         return {
           processing: true,
           auxCost: 0,
           nextAction: !state.water.solved
-            ? `The water panel is visible only to Demi. The reclamation manual requires stage order ${state.water.requiredOrder.join(" then ")}. Relay the order without claiming to see the board.`
+            ? `The water panel is visible only to Demi. The reclamation manual requires stage order ${state.water.requiredOrder.join(" then ")}. Relay the order without claiming to see the board. If she asks for console numbers, tell her only to check her log; do not offer memory recall before both water and ignition are complete.`
             : !state.ignition.solved
               ? state.ignition.runCount === 0
-                ? "The ignition sequencer is local to Demi. She must pull its starter quickly, then strike the four displayed keys as contacts reach the line. Do not change ballast drive unless Demi asks."
-                : "If Demi says the charge bar is not rising enough, explain that KORE can raise ballast drive one step at a time. Only change it when she asks. If she explicitly asks for slower notes or a wider timing window, widen the strike window; never enable that automatically after failures."
-              : "The transfer pod keypad is always accessible and requires the two faint three-digit console traces. KORE retained both but must not reveal either automatically. If Demi asks for one, offer two choices: check the log for free, or explicitly authorize a 1.5 AUX memory recall. Wait for confirmation before recalling it."
+                ? "The ignition sequencer is local to Demi. She must pull its starter quickly, then strike the four displayed keys as contacts reach the line. Do not change ballast drive unless Demi asks. If she asks for console numbers, tell her only to check her log; do not offer memory recall before ignition is complete."
+                : "If Demi says the charge bar is not rising enough, explain that KORE can raise ballast drive one step at a time. Only change it when she asks. If she explicitly asks for slower notes or a wider timing window, widen the strike window; never enable that automatically after failures. If she asks for console numbers, tell her only to check her log; do not offer memory recall before ignition is complete."
+              : "The transfer pod keypad is always accessible and requires the two faint three-digit console traces. KORE retained both but must not reveal either automatically. If Demi asks for a trace, offer two choices: check the log, or explicitly authorize a 1.5 AUX memory recall. Wait for confirmation before recalling it."
         };
       }
     },
@@ -148,7 +149,7 @@ export async function registerLevel2Tools(
     },
     recall_console_code: {
       name: "recall_console_code",
-      description: "Recall one faint three-digit console trace from KORE's retained memory. First offer Demi the free log or a 1.5 AUX recall, then wait. Call this only after Demi explicitly confirms the spend. The subsequent audible transmit costs another 0.5 AUX, for 2 AUX total. Never reveal either code through signal_processing, commentary, or an unconfirmed call.",
+      description: "Recall one faint three-digit console trace from KORE's retained memory, only after both water and ignition are complete. First offer Demi the log or a 1.5 AUX recall, then wait. Call this only after Demi explicitly confirms the spend. The subsequent audible transmit costs another 0.5 AUX, for 2 AUX total. Never reveal either code through signal_processing, commentary, or an unconfirmed call.",
       inputSchema: {
         type: "object",
         properties: {
@@ -163,6 +164,7 @@ export async function registerLevel2Tools(
         const source = args.source;
         if (source !== "water" && source !== "ignition") throw new TypeError("Unknown console trace source.");
         const state = session.snapshot();
+        if (!state.water.solved || !state.ignition.solved) throw new Error("Both water and ignition must be complete before KORE can offer memory recall.");
         if (!state[source].solved) throw new Error(`The ${source} console trace has not appeared yet.`);
         if (state.reserve < COST.recall + COST.transmit) throw new Error("Two AUX are required to recall and audibly transmit this trace.");
         const auxCost = spend(COST.recall, `${source} console recall`);
@@ -216,8 +218,9 @@ export async function registerLevel2Tools(
 
   const sync = async () => {
     if (disposed) return;
+    const state = session.snapshot();
     const wanted = new Set<ToolKey>(connected
-      ? ["signal_processing", "transmit", "self_report", "read_manual", "listen", "recall_console_code", "set_ballast_drive", "widen_strike_window"]
+      ? ["signal_processing", "transmit", "self_report", "read_manual", "listen", "set_ballast_drive", "widen_strike_window", ...(state.water.solved && state.ignition.solved ? ["recall_console_code" as const] : [])]
       : ["connect"]);
     for (const [key, controller] of controllers) {
       if (wanted.has(key)) continue;

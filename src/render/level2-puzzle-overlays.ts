@@ -9,10 +9,11 @@ import { panelText } from "./panel-text";
 export type Level2PuzzleId = "pressure" | "vents" | "water" | "ignition" | "pod";
 export interface Level2PuzzleHandlers {
   snapshot(): Level2State; dispatch(action: Level2Action): void; panelOpened(): void;
-  panelClosed(): void; controlStep(): void;
+  panelClosed(): void; controlStep(): void; interfaceClick(): void; buttonPress(): void;
+  ignitionStarter(): void; pressureWheelMotion(intensity: number, deltaMs: number): void;
 }
 export interface Level2PuzzleOverlays {
-  readonly container: Container; open(id: Level2PuzzleId): void; refresh(): void;
+  readonly container: Container; open(id: Level2PuzzleId): void; close(): void; refresh(): void;
   update(deltaMs: number): void; destroy(): void;
 }
 export interface Level2PanelHardwareTextures {
@@ -97,13 +98,17 @@ export function createLevel2PuzzleOverlays(
   // The shadow must not rotate off-axis with the wheel. The panel surface
   // already provides enough separation behind this large control.
   const pressureWheelArt = createHardwareSprite(hardware.pressureWheel, 224, 0, 0, 0);
-  // The painted rim is optically above the source canvas midpoint. Align its
-  // center with the interaction pivot so the wheel does not orbit while turning.
-  pressureWheelArt.position.y = 5.5;
+  // The source canvas has extra transparent space below the wheel and its
+  // painted bounds are slightly taller than wide. Correct both before rotation
+  // so the visible rim is circular and its hub sits on the interaction pivot.
+  pressureWheelArt.position.y = 6.25;
   // Pixel rounding is useful for stationary hardware, but makes a rotating
   // sprite jump between adjacent pixels as its transform changes.
   for (const child of pressureWheelArt.children) {
-    if (child instanceof Sprite) child.roundPixels = false;
+    if (child instanceof Sprite) {
+      child.scale.y *= 0.9664;
+      child.roundPixels = false;
+    }
   }
   const pressureScope = { x: 436, y: 75, width: 104, height: 222 } as const;
   const pressureScopeCenterX = pressureScope.x + pressureScope.width / 2;
@@ -177,6 +182,7 @@ export function createLevel2PuzzleOverlays(
   let wheelDragAngle: number | null = null;
   let wheelVisualAngle = 0;
   let wheelVelocity = 0;
+  let wheelLastMotionAt = -Infinity;
   let pressureNeedle = handlers.snapshot().pressure;
   let pressureNeedleVelocity = 0;
   let temperatureNeedle = handlers.snapshot().temperature;
@@ -195,6 +201,7 @@ export function createLevel2PuzzleOverlays(
     if (Math.abs(delta) < 0.015) return;
     wheelVisualAngle += delta;
     wheelVelocity = wheelVelocity * 0.32 + delta * 18;
+    wheelLastMotionAt = performance.now();
     handlers.dispatch({ type: "CRANK_PRESSURE", amount: delta * 5.8 });
     wheelDragAngle = next;
   };
@@ -323,6 +330,7 @@ export function createLevel2PuzzleOverlays(
     }
     if (!closest) parkedThermalPositions[releasedFeed] = { ...thermalDragPoint };
     handlers.dispatch(closest ? { type: "SEAT_THERMAL_PLUG", socket: closest } : { type: "DROP_THERMAL_PLUG" });
+    if (closest) handlers.buttonPress();
     const view = cableViews.find((candidate) => candidate.feed === releasedFeed);
     if (view) view.plug.cursor = "grab";
     activeThermalFeed = null;
@@ -433,7 +441,9 @@ export function createLevel2PuzzleOverlays(
     if (starterDragging && starterPeakExtension >= 40) {
       const elapsedMs = Math.max(1, performance.now() - starterPullStartMs);
       const distanceSpeed = starterPeakExtension / elapsedMs * 1000;
+      const wasRunning = handlers.snapshot().ignition.running;
       handlers.dispatch({ type: "START_IGNITION", pullSpeed: Math.max(starterPeakSpeed, distanceSpeed) });
+      if (!wasRunning && handlers.snapshot().ignition.running) handlers.ignitionStarter();
     }
     starterDragging = false; starter.cursor = "grab";
   };
@@ -478,7 +488,11 @@ export function createLevel2PuzzleOverlays(
     stageCollar.anchor.set(0.5); stageCollar.position.set(tileSize / 2, tileSize / 2);
     stageCollar.scale.set(27 / hardware.waterStageCollar.width); stageCollar.roundPixels = true;
     const letter = text("", 12, 0xe9dfc7); letter.anchor.set(0.5); letter.position.set(tileSize / 2, tileSize / 2);
-    root.addChild(art, pipeMask, stageCollar, letter); root.on("pointertap", () => handlers.dispatch({ type: "ROTATE_PIPE", index })); water.body.addChild(root);
+    root.addChild(art, pipeMask, stageCollar, letter); root.on("pointertap", () => {
+      const tile = handlers.snapshot().water.tiles[index];
+      if (tile && tile.kind !== "blocked" && tile.kind !== "empty") handlers.interfaceClick();
+      handlers.dispatch({ type: "ROTATE_PIPE", index });
+    }); water.body.addChild(root);
     return { root, art, pipeMask, stageCollar, letter, index, column, row };
   });
   const inlet = new Sprite(hardware.waterStraightFlowing[0]);
@@ -575,9 +589,19 @@ export function createLevel2PuzzleOverlays(
   podDisplayGlow.filters = [new BlurFilter({ strength: 3, quality: 1 })];
   const podDisplay = text("------", 25, 0xe2a348);
   podDisplay.anchor.set(0.5); podDisplay.position.set(180, 83);
+  const podSuccessCheckGlow = new Graphics()
+    .moveTo(163, 83).lineTo(175, 92).lineTo(198, 70)
+    .stroke({ color: 0x6ee37b, width: 8, alpha: 0.38 });
+  podSuccessCheckGlow.blendMode = "add";
+  podSuccessCheckGlow.filters = [new BlurFilter({ strength: 5, quality: 1 })];
+  const podSuccessCheck = new Graphics()
+    .moveTo(163, 83).lineTo(175, 92).lineTo(198, 70)
+    .stroke({ color: 0x79db77, width: 4, alpha: 0.98 });
+  podSuccessCheck.visible = false;
+  podSuccessCheckGlow.visible = false;
   const podNumpad = new Sprite(hardware.podNumpad);
   podNumpad.position.set(100, 100); podNumpad.width = 160; podNumpad.height = 220; podNumpad.alpha = 0.72; podNumpad.roundPixels = true;
-  pod.body.addChild(podCrtGlow, podCrt, podPhosphor, podScanlines, podDisplayGlow, podDisplay, podNumpad);
+  pod.body.addChild(podCrtGlow, podCrt, podPhosphor, podScanlines, podDisplayGlow, podDisplay, podSuccessCheckGlow, podSuccessCheck, podNumpad);
   const keyColumns = [140, 180, 221];
   const keyRows = [143, 187, 231, 275];
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "DEL", "0", "ENTER"].forEach((digit, index) => {
@@ -588,6 +612,7 @@ export function createLevel2PuzzleOverlays(
     key.on("pointerup", () => { caption.y = 0; caption.tint = 0xffffff; });
     key.on("pointerupoutside", () => { caption.y = 0; caption.tint = 0xffffff; });
     key.on("pointertap", () => {
+      handlers.interfaceClick();
       if (digit === "DEL") handlers.dispatch({ type: "POD_BACKSPACE" });
       else if (digit === "ENTER") handlers.dispatch({ type: "SUBMIT_POD_CODE" });
       else handlers.dispatch({ type: "POD_DIGIT", digit });
@@ -833,6 +858,10 @@ export function createLevel2PuzzleOverlays(
     const podCode = `${state.pod.input}${"-".repeat(Math.max(0, 6 - state.pod.input.length))}`;
     podDisplay.text = podCode;
     podDisplayGlow.text = podCode;
+    podDisplay.visible = !state.pod.opened;
+    podDisplayGlow.visible = !state.pod.opened;
+    podSuccessCheck.visible = state.pod.opened;
+    podSuccessCheckGlow.visible = state.pod.opened;
     const crtFlicker = 0.92 + Math.sin(pulseMs / 43) * 0.045 + Math.sin(pulseMs / 17) * 0.025;
     podDisplay.alpha = crtFlicker;
     podDisplayGlow.alpha = 0.42 + crtFlicker * 0.15;
@@ -857,6 +886,7 @@ export function createLevel2PuzzleOverlays(
 
   return {
     container,
+    close: () => close(false),
     open(id) {
       if (activeTransition?.visible) close(false);
       active = id; activeTransition = transitions[id]; handlers.dispatch({ type: "SET_OVERLAY", open: true });
@@ -874,6 +904,9 @@ export function createLevel2PuzzleOverlays(
         handlers.dispatch({ type: "CRANK_PRESSURE", amount: travel * 0.72 });
         wheelVelocity *= Math.exp(-8.4 * seconds);
       }
+      const activelyDragged = wheelDragAngle !== null && performance.now() - wheelLastMotionAt < 110;
+      const wheelMotion = activelyDragged || wheelDragAngle === null ? Math.min(1, Math.abs(wheelVelocity) / 8) : 0;
+      handlers.pressureWheelMotion(active === "pressure" ? wheelMotion : 0, deltaMs);
       const state = handlers.snapshot();
       pressureNeedleVelocity += (state.pressure - pressureNeedle) * 68 * seconds;
       pressureNeedleVelocity *= Math.exp(-8.2 * seconds);
@@ -959,6 +992,7 @@ export function createLevel2PuzzleOverlays(
       if (active) refresh();
     },
     destroy() {
+      handlers.pressureWheelMotion(0, 1_000);
       window.removeEventListener("keydown", onKeyDown);
       handlers.dispatch({ type: "SET_IGNITION_PANEL", open: false });
       handlers.dispatch({ type: "SET_THERMAL_PANEL", open: false });

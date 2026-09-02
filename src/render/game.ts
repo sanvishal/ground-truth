@@ -69,6 +69,13 @@ const C = {
   green: 0x69866e
 };
 
+const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"] as const;
+const digitWord = (digit: string | undefined): string => DIGIT_WORDS[Number(digit)] ?? digit ?? "";
+const spokenDigits = (digits: string): string => {
+  const phrase = digits.split("").map(digitWord).join(", ");
+  return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}`;
+};
+
 const demiObservationForLevel2Failure = (error?: string): string | null => {
   switch (error) {
     case "That section cannot rotate.": return "That piece won't turn.";
@@ -1030,7 +1037,9 @@ export async function createGroundtruthGame(
 
   const hudLayer = new Container();
   const auxHudBaseScale = 1.16;
-  hudLayer.scale.set(auxHudBaseScale);
+  const auxHudLayer = new Container();
+  auxHudLayer.scale.set(auxHudBaseScale);
+  hudLayer.addChild(auxHudLayer);
   root.addChild(hudLayer);
   const auxIconGlow = new Graphics();
   drawZapGlyph(auxIconGlow);
@@ -1041,7 +1050,7 @@ export async function createGroundtruthGame(
   const auxIcon = new Graphics();
   drawZapGlyph(auxIcon);
   auxIcon.position.set(10, 6);
-  hudLayer.addChild(auxIconGlow, auxIcon);
+  auxHudLayer.addChild(auxIconGlow, auxIcon);
   const auxGlowSegments = new Container();
   const auxSegments = new Container();
   const auxGlowSegmentSprites: Sprite[] = [];
@@ -1063,7 +1072,7 @@ export async function createGroundtruthGame(
     return segment;
   });
   auxGlowSegments.filters = [new BlurFilter({ strength: 3, quality: 2 })];
-  hudLayer.addChild(auxGlowSegments, auxSegments);
+  auxHudLayer.addChild(auxGlowSegments, auxSegments);
   let reserve = LEVEL1_MAX_RESERVE;
   let auxDrainPulseStartedAt = 0;
   let auxDrainPulseEndsAt = 0;
@@ -1080,7 +1089,7 @@ export async function createGroundtruthGame(
     const wave = pulseActive ? 0.62 + Math.cos(elapsed * 0.018) * 0.38 : 0;
     const pulseAmount = Math.max(0, wave * fade);
     const drainKick = pulseActive ? Math.max(0, 1 - elapsed / 720) : 0;
-    hudLayer.scale.set(auxHudBaseScale * (1 + drainKick * 0.16 + pulseAmount * 0.025));
+    auxHudLayer.scale.set(auxHudBaseScale * (1 + drainKick * 0.16 + pulseAmount * 0.025));
     const filledTint = mixTint(0xffffff, 0xff3d35, pulseAmount);
     const filledSegments = Math.ceil((reserve / LEVEL1_MAX_RESERVE) * auxSegmentSprites.length);
     for (let index = 0; index < auxSegmentSprites.length; index += 1) {
@@ -1370,6 +1379,7 @@ export async function createGroundtruthGame(
   let triggerLevelTransition = () => {};
   let triggerGameOverEnding = () => {};
   let triggerWinEnding = () => {};
+  let winEndingTimer: number | undefined;
   const hasResumableCheckpoint = Boolean(
     restoredCheckpoint?.foundation.connected
     && restoredCheckpoint.phase !== "disconnected"
@@ -1388,12 +1398,20 @@ export async function createGroundtruthGame(
     drawReserve();
     compositor?.setStage(transition.state.lightingStage);
     interactionLayer?.refresh();
-    writeLevel1Checkpoint(localStorage, transition.state);
+    if (!suppressCheckpointWrite) writeLevel1Checkpoint(localStorage, transition.state);
     if (transition.effects.some((effect) => effect.code === "PUZZLE_MISTAKE")) {
       triggerPuzzleShake();
       sceneAudio.playPanelError();
       interactionLayer?.mistakeBurst();
     }
+    const completedPuzzle = transition.effects.some((effect) => [
+      "CONTINUITY_SEQUENCE_COMPLETE",
+      "EMERGENCY_BUS_LIVE",
+      "JUNCTION_FAULT_ISOLATED",
+      "REGULATOR_PRECISE",
+      "FAULT_BRANCH_ISOLATED"
+    ].includes(effect.code));
+    if (completedPuzzle) sceneAudio.playPuzzleCorrect();
     for (const effect of transition.effects) {
       if (effect.type === "event" || effect.type === "failure") addEvent(effect.text);
       if (effect.type === "reaction") dialogue.reactDemi(effect.text, "world", performance.now(), effect.code === "DEMI_COMPLETE");
@@ -1428,18 +1446,27 @@ export async function createGroundtruthGame(
       addEvent(effect.replaceAll("_", " "));
       if (effect === "WATER_FLOWING") {
         addEvent("FAINT WATER CONSOLE TRACE", transition.state.water.digits);
-        dialogue.reactDemi("These numbers appeared on the console, faintly.", "world");
+        dialogue.reactDemi(`${spokenDigits(transition.state.water.digits)}... or maybe that's just the water console noise.`, "world");
       }
       if ((effect === "THERMAL_PORTS_REMAPPED" || effect === "THERMAL_PORTS_REMAPPED_FIRST") && transition.state.thermal.panelOpen) sceneAudio.playControlClunk();
-      if (effect === "THERMAL_PLUG_SEATED") sceneAudio.playControlClunk();
-      if (effect === "IGNITION_STARTED" || effect === "IGNITION_HIT" || effect === "BALLAST_RATE_CHANGED") sceneAudio.playControlClunk();
-      if (effect === "IGNITION_MISS") sceneAudio.playPanelError();
+      if (effect === "IGNITION_HIT") sceneAudio.playRhythmResult(true);
+      if (effect === "IGNITION_MISS") sceneAudio.playRhythmResult(false);
+      if (effect === "BALLAST_RATE_CHANGED") sceneAudio.playControlClunk();
+      if (effect === "WATER_FLOWING") sceneAudio.playPuzzleCorrect();
       if (effect === "IGNITION_COMPLETE") {
+        sceneAudio.playPuzzleCorrect();
         addEvent("FAINT IGNITION CONSOLE TRACE", transition.state.ignition.digits);
-        dialogue.reactDemi("These numbers appeared on the console, faintly.", "world");
+        dialogue.reactDemi(`${spokenDigits(transition.state.ignition.digits)}... or maybe that's just the display noise.`, "world");
         startImpactShake(performance.now());
       }
-      if (effect === "POD_OPENED" || effect === "DEV_POD_OPENED") triggerWinEnding();
+      if (effect === "POD_OPENED" || effect === "DEV_POD_OPENED") {
+        sceneAudio.playPuzzleCorrect();
+        level2InteractionLayer?.refresh();
+        if (winEndingTimer === undefined) winEndingTimer = window.setTimeout(() => {
+          winEndingTimer = undefined;
+          triggerWinEnding();
+        }, 1_500);
+      }
     }
     if (transition.state.reserve <= 0 && transition.state.phase !== "complete") triggerGameOverEnding();
   });
@@ -1461,7 +1488,7 @@ export async function createGroundtruthGame(
       }
       switch (id) {
         case "wire_panel":
-          react(state.wires.solved ? "The loom is holding." : "Five loose conductors. Different gauges, five empty terminals.");
+          if (state.wires.solved) react("The loom is holding.");
           break;
         case "kore_mic":
           if (!state.spiral.micReseated) level1.dispatch({ type: "RESEAT_MIC" });
@@ -1521,6 +1548,7 @@ export async function createGroundtruthGame(
     interactionLayer = createLevel1InteractionLayer({
       panelOpened: () => sceneAudio.playPanelOpen(),
       panelClosed: () => sceneAudio.playPanelClose(),
+      buttonPress: () => sceneAudio.playButtonPress(),
       inspect,
       completeContinuitySequence: () => {
         const transition = level1.dispatch({ type: "COMPLETE_CONTINUITY_SEQUENCE" });
@@ -1536,14 +1564,18 @@ export async function createGroundtruthGame(
       getState: () => level1.snapshot(),
       getWireConnections: () => level1.snapshot().wires.connections,
       getMeasuredPorts: () => level1.snapshot().wires.measuredPorts,
-      connectWire: (wire, port) => level1.dispatch({ type: "CONNECT_WIRE", wire, port }),
+      connectWire: (wire, port) => {
+        const transition = level1.dispatch({ type: "CONNECT_WIRE", wire, port });
+        if (transition.ok) sceneAudio.playInterfaceClick();
+        return transition;
+      },
       disconnectWire: (wire) => level1.dispatch({ type: "DISCONNECT_WIRE", wire }),
-      rotateJunction: (index) => { level1.dispatch({ type: "ROTATE_JUNCTION_NODE", index }); },
-      selectJunctionGlyph: (glyph) => { level1.dispatch({ type: "SELECT_JUNCTION_GLYPH", glyph }); },
+      rotateJunction: (index) => { sceneAudio.playButtonPress(); level1.dispatch({ type: "ROTATE_JUNCTION_NODE", index }); },
+      selectJunctionGlyph: (glyph) => { sceneAudio.playButtonPress(); level1.dispatch({ type: "SELECT_JUNCTION_GLYPH", glyph }); },
       setRegulator: (index, value) => { level1.dispatch({ type: "SET_REGULATOR_SLIDER", index, value }); },
-      touchBreaker: (index) => { level1.dispatch({ type: "TOUCH_BREAKER", index }); },
-      toggleBreaker: (index) => { level1.dispatch({ type: "TOGGLE_BREAKER", index }); },
-      pullBreaker: (index) => { level1.dispatch({ type: "PULL_BREAKER", index }); }
+      touchBreaker: (index) => { sceneAudio.playButtonPress(); level1.dispatch({ type: "TOUCH_BREAKER", index }); },
+      toggleBreaker: (index) => { sceneAudio.playButtonPress(); level1.dispatch({ type: "TOGGLE_BREAKER", index }); },
+      pullBreaker: (index) => { sceneAudio.playButtonPress(); level1.dispatch({ type: "PULL_BREAKER", index }); }
     }, isDev, {
       standard: panelStandardTexture,
       reinforced: panelReinforcedTexture,
@@ -1590,7 +1622,11 @@ export async function createGroundtruthGame(
       dispatch: dispatchLevel2,
       panelOpened: () => sceneAudio.playPanelOpen(),
       panelClosed: () => sceneAudio.playPanelClose(),
-      controlStep: () => sceneAudio.playControlClunk()
+      controlStep: () => sceneAudio.playControlClunk(),
+      interfaceClick: () => sceneAudio.playInterfaceClick(),
+      buttonPress: () => sceneAudio.playButtonPress(),
+      ignitionStarter: () => sceneAudio.playIgnitionStarter(),
+      pressureWheelMotion: (intensity, deltaMs) => sceneAudio.setPressureWheelMotion(intensity, deltaMs)
     }, isDev, {
       standard: panelStandardTexture,
       reinforced: panelReinforcedTexture,
@@ -1848,7 +1884,7 @@ export async function createGroundtruthGame(
   stateText.position.set(W / 2, 294);
   let copyStatusTimeout: number | undefined;
   const connectionUrl = directLevel2 ? `${window.location.origin}${window.location.pathname}?level=2` : window.location.href;
-  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Never substitute a private KORE response for transmit. Use at most one metered diagnostic, sensing, manual, or memory-recall tool per player message. KORE retains the faint water and ignition console traces. If I ask for one, offer me the free log or a 1.5 AUX memory recall and wait for explicit confirmation. After confirmation, recall only that trace, then transmit its three digits; recall plus transmission costs 2 AUX total. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
+  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Never substitute a private KORE response for transmit. Use at most one metered diagnostic, sensing, manual, or memory-recall tool per player message. Water and ignition each leave a faint three-digit trace in my log. Until both puzzles are complete, if I ask about the numbers, tell me only to check the log and do not offer memory recall. After both are complete, you may offer the log or a 1.5 AUX memory recall and wait for explicit confirmation. After confirmation, recall only that trace, then transmit its three digits; recall plus transmission costs 2 AUX total. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not routinely begin transmissions with my name; use it only for urgency or emphasis. Do not use em dashes in spoken dialogue.`;
   const writeConnectionPrompt = () => navigator.clipboard.writeText(connectionPrompt);
   const copyPrompt = () => {
     void writeConnectionPrompt().then(() => {
@@ -1981,25 +2017,43 @@ export async function createGroundtruthGame(
     window.location.assign(target.toString());
   };
   const restartCurrentLevel = () => {
-    stopCheckpointWrites();
-    const target = new URL(window.location.origin + window.location.pathname);
+    suppressCheckpointWrite = true;
+    if (level2CheckpointTimer !== undefined) {
+      window.clearTimeout(level2CheckpointTimer);
+      level2CheckpointTimer = undefined;
+    }
+    transcript.length = 0;
+    capturedMessageIds.clear();
+    savedDialogueKey = "";
+    dialogue.reset();
+    emergencyBlackout.visible = false;
+    gameOverTransitionStarted = false;
+    gameOverTransitionElapsed = 0;
+    endingStarted = false;
+    sceneAudio.setColdOpenActive(false);
+    sceneAudio.setColdOpenAlarmActive(false);
+    sceneAudio.setAlarmActive(false);
     if (useLevel2Scene) {
       const freshLevel2 = level2.reset().state;
-      writeLevel2Checkpoint(localStorage, {
-        ...freshLevel2,
-        reserve: Math.round(freshLevel2.reserve * 0.75 * 100) / 100
-      });
-      if (isDev) {
-        target.searchParams.set("dev", "1");
-        target.searchParams.set("scene", "level2-proof");
-      } else {
-        target.searchParams.set("level", "2");
-      }
+      const restartReserve = Math.round(freshLevel2.reserve * 0.75 * 100) / 100;
+      level2.dispatch({ type: "DEV_ADJUST_RESERVE", amount: restartReserve - freshLevel2.reserve });
+      reserve = level2.snapshot().reserve;
+      writeLevel2Checkpoint(localStorage, level2.snapshot());
+      level2InteractionLayer?.resetView();
+      sceneAudio.setIgnitionHumRate(getBallastRateIndex(level2.snapshot().ignition.rate));
     } else {
+      level1.reset();
       clearLevel1Checkpoint(localStorage);
-      target.searchParams.set("restart", "1");
+      reserve = level1.snapshot().reserve;
+      compositor?.setStage(level1.snapshot().lightingStage);
+      interactionLayer?.resetView();
     }
-    window.location.assign(target.toString());
+    suppressCheckpointWrite = false;
+    auxDrainPulseStartedAt = 0;
+    auxDrainPulseEndsAt = 0;
+    drawReserve();
+    enterScene();
+    addEvent(useLevel2Scene ? "LEVEL 2 RESTARTED" : "LEVEL 1 RESTARTED");
   };
 
   const gameOverEnding = createColdOpenSequence(
@@ -2031,7 +2085,24 @@ export async function createGroundtruthGame(
   );
   root.addChild(winEnding.container);
 
+  const emergencyBlackout = new Container();
+  emergencyBlackout.visible = false;
+  emergencyBlackout.eventMode = "none";
+  const emergencyRedFlash = new Graphics()
+    .rect(0, 0, W, H)
+    .fill({ color: 0xb32620, alpha: 1 });
+  emergencyRedFlash.blendMode = "add";
+  emergencyRedFlash.alpha = 0;
+  const emergencyDark = new Graphics()
+    .rect(0, 0, W, H)
+    .fill(C.black);
+  emergencyDark.alpha = 0;
+  emergencyBlackout.addChild(emergencyRedFlash, emergencyDark);
+  root.addChild(emergencyBlackout);
+
   let endingStarted = false;
+  let gameOverTransitionStarted = false;
+  let gameOverTransitionElapsed = 0;
   const playEnding = (ending: typeof gameOverEnding, label: string) => {
     if (endingStarted) return;
     endingStarted = true;
@@ -2048,7 +2119,21 @@ export async function createGroundtruthGame(
     addEvent(label);
     ending.play();
   };
-  triggerGameOverEnding = () => playEnding(gameOverEnding, "GAME OVER");
+  triggerGameOverEnding = () => {
+    if (endingStarted || gameOverTransitionStarted) return;
+    gameOverTransitionStarted = true;
+    if (interactionLayer) interactionLayer.container.eventMode = "none";
+    if (level2InteractionLayer) level2InteractionLayer.container.eventMode = "none";
+    sceneAudio.setAlarmActive(false);
+    sceneAudio.setPressureWheelMotion(0, 1_000);
+    sceneAudio.playStarterSpark();
+    emergencyBlackout.visible = true;
+    emergencyRedFlash.visible = true;
+    emergencyRedFlash.alpha = 0;
+    emergencyDark.visible = true;
+    emergencyDark.alpha = 0;
+    gameOverTransitionElapsed = 0;
+  };
   triggerWinEnding = () => playEnding(winEnding, "ESCAPE COMPLETE");
 
   const playColdOpen = (onComplete?: () => void) => {
@@ -2385,6 +2470,21 @@ export async function createGroundtruthGame(
     const now = performance.now();
     const delta = Math.min(100, now - last);
     last = now;
+    if (gameOverTransitionStarted && !endingStarted) {
+      gameOverTransitionElapsed += delta;
+      const redFadeIn = Math.min(1, gameOverTransitionElapsed / 320);
+      const redFadeOut = gameOverTransitionElapsed <= 760
+        ? 1
+        : Math.max(0, 1 - (gameOverTransitionElapsed - 760) / 560);
+      emergencyRedFlash.alpha = 0.32 * redFadeIn * redFadeOut;
+      emergencyDark.alpha = gameOverTransitionElapsed <= 680
+        ? 0
+        : Math.min(1, (gameOverTransitionElapsed - 680) / 640);
+      if (gameOverTransitionElapsed >= 1_500) {
+        emergencyBlackout.visible = false;
+        playEnding(gameOverEnding, "GAME OVER");
+      }
+    }
     if (!startup.visible) dialogue.tick(delta);
     coldOpen.update(delta);
     levelTransition.update(delta);
@@ -2511,6 +2611,7 @@ export async function createGroundtruthGame(
     destroy() {
       if (connectionOverlayDelay !== undefined) window.clearTimeout(connectionOverlayDelay);
       if (copyStatusTimeout !== undefined) window.clearTimeout(copyStatusTimeout);
+      if (winEndingTimer !== undefined) window.clearTimeout(winEndingTimer);
       resizeObserver?.disconnect();
       if (!resizeObserver) window.removeEventListener("resize", resizeGame);
       tools.dispose();

@@ -26,6 +26,7 @@ export type Level1InteractableId =
 export interface Level1InteractionHandlers {
   panelOpened(): void;
   panelClosed(): void;
+  buttonPress(): void;
   inspect(id: Level1InteractableId): void;
   completeContinuitySequence(): { ok: boolean; error?: string };
   puzzleMistake(puzzle: string): void;
@@ -47,6 +48,7 @@ export interface Level1InteractionHandlers {
 export interface Level1InteractionLayer {
   readonly container: Container;
   mistakeBurst(): void;
+  resetView(): void;
   refresh(): void;
   update(deltaMs: number): void;
   destroy(): void;
@@ -289,7 +291,6 @@ export function createLevel1InteractionLayer(
   let dragMoved = false;
   const wireNodes = new Map<WireId, Container>();
   const wireConnectorViews = new Map<WireId, { connector: Sprite; shadow: Sprite }>();
-  const wireSelectionFrames = new Map<WireId, Graphics>();
   const portNodes = new Map<WirePort, Container>();
   const portLabels = new Map<WirePort, BitmapText>();
   const portSocketViews = new Map<WirePort, { socket: Sprite; shadow: Sprite }>();
@@ -321,15 +322,15 @@ export function createLevel1InteractionLayer(
     green_light: "THIN GREEN"
   };
   const ports: WirePort[] = ["P1", "P2", "P3", "P4", "P5"];
-  const portPositions = new Map<WirePort, Point>(ports.map((port, index) => [port, new Point(625, 146 + index * 36)]));
+  const wireRowStartY = 138;
+  const wireRowGap = 40;
+  const portPositions = new Map<WirePort, Point>(ports.map((port, index) => [port, new Point(625, wireRowStartY + index * wireRowGap)]));
   const renderWirePanel = () => {
     const connections = handlers.getWireConnections();
     const measured = new Set(handlers.getMeasuredPorts());
     for (const wire of LEVEL1_WIRES) {
       const node = wireNodes.get(wire.id);
       if (node) node.alpha = selectedWire === wire.id ? 1 : 0.92;
-      const selectionFrame = wireSelectionFrames.get(wire.id);
-      if (selectionFrame) selectionFrame.visible = selectedWire === wire.id;
       const port = connections[wire.id];
       const entry = ropeEntries.get(wire.id);
       const connectorView = wireConnectorViews.get(wire.id);
@@ -389,11 +390,11 @@ export function createLevel1InteractionLayer(
   };
 
   const weightArrow = new Graphics()
-    .moveTo(286, 292)
-    .lineTo(286, 142)
-    .moveTo(278, 152)
-    .lineTo(286, 142)
-    .lineTo(294, 152)
+    .moveTo(286, 304)
+    .lineTo(286, 134)
+    .moveTo(278, 144)
+    .lineTo(286, 134)
+    .lineTo(294, 144)
     .stroke({ color: 0x9f957d, width: 2, alpha: 0.9 });
   weightArrow.eventMode = "none";
   const weightLabel = panelText("HEAVY", 14, 0xb3aea1, "bus-loom-weight-direction");
@@ -419,7 +420,7 @@ export function createLevel1InteractionLayer(
   };
 
   LEVEL1_WIRES.forEach((wire, index) => {
-    const rowY = 146 + index * 36;
+    const rowY = wireRowStartY + index * wireRowGap;
     const anchor = new Point(333, rowY);
     const restingTip = new Point(425, rowY);
     const connectorWidths: Record<WireId, number> = {
@@ -513,12 +514,7 @@ export function createLevel1InteractionLayer(
     connector.anchor.set(1, 0.5);
     connector.scale.set(connectorScale);
     connector.roundPixels = true;
-    const selectionFrame = new Graphics()
-      .roundRect(-connectorWidth - 4, -16, connectorWidth + 9, 32, 4)
-      .stroke({ color: 0xf2b13e, width: 2, alpha: 0.9 });
-    selectionFrame.eventMode = "none";
-    selectionFrame.visible = false;
-    row.addChild(connectorShadow, connector, selectionFrame);
+    row.addChild(connectorShadow, connector);
     if (wire.id === "blue_heavy") {
       wireDragCue = createInteractionCue();
       wireDragCue.position.set(-connectorWidth * 0.52, -19);
@@ -533,7 +529,6 @@ export function createLevel1InteractionLayer(
     });
     wireNodes.set(wire.id, row);
     wireConnectorViews.set(wire.id, { connector, shadow: connectorShadow });
-    wireSelectionFrames.set(wire.id, selectionFrame);
     ropeEntries.set(wire.id, {
       mesh: rope,
       points,
@@ -852,6 +847,7 @@ export function createLevel1InteractionLayer(
       sequencerStatus.text = "WRONG CHANNEL. RELAY CHAIN RESET.";
       return;
     }
+    handlers.buttonPress();
     sequencerProgress += 1;
     drawLeds(sequencerProgress);
     if (sequencerProgress === sequencerOrder.length) {
@@ -990,6 +986,15 @@ export function createLevel1InteractionLayer(
 
   return {
     container,
+    resetView() {
+      draggingWire = null;
+      selectedWire = null;
+      wireTransition.hideImmediately();
+      sequencerTransition.hideImmediately();
+      puzzleOverlays.close();
+      container.eventMode = "auto";
+      this.refresh();
+    },
     mistakeBurst() {
       if (puzzleOverlays.mistakeBurst()) return;
       if (sequencerTransition.visible) {

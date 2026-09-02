@@ -61,6 +61,10 @@ export function mountLevel1RuntimeLab(
   header.append(copy, stateLine);
 
   const dispatch = (action: Level1Action) => session.dispatch(action);
+  const resetRun = () => {
+    session.reset();
+    location.reload();
+  };
   const ensureFoundation = () => {
     if (!session.snapshot().foundation.connected) dispatch({ type: "CONNECT" });
     if (!session.snapshot().foundation.wakeResponseHeard) dispatch({ type: "DEMI_WAKE_RESPONSE", message: "Dev calibration response." });
@@ -128,7 +132,7 @@ export function mountLevel1RuntimeLab(
     group("FOUNDATION", [
       button("CONNECT", controls.connect),
       button("KORE RESPONSE", controls.foundationIntro),
-      button("DIAGNOSTICS", () => dispatch({ type: "RUN_DIAGNOSTICS" }))
+      button("DIAGNOSTICS", ensureFoundation)
     ]),
     group("WIRE RESTORE", [
       button("RUN SEQUENCER", () => dispatch({ type: "COMPLETE_CONTINUITY_SEQUENCE" })),
@@ -152,7 +156,7 @@ export function mountLevel1RuntimeLab(
       button("DIVERT POWER", () => dispatch({ type: "DIVERT_DOOR" })),
       button("COMMIT CLEAR", () => dispatch({ type: "COMMIT_DOOR" })),
       button("SIMULATE OPEN DOOR", simulateOpenDoor),
-      button("RESET RUN", () => session.reset(), "quiet")
+      button("RESET RUN", resetRun, "quiet")
     ]),
     group("AUX POWER", [
       button("− 0.5 AUX", () => dispatch({ type: "DEV_ADJUST_RESERVE", amount: -0.5 })),

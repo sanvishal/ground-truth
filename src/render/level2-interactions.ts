@@ -25,10 +25,15 @@ export interface Level2InteractionHandlers {
   panelOpened(): void;
   panelClosed(): void;
   controlStep(): void;
+  interfaceClick(): void;
+  buttonPress(): void;
+  ignitionStarter(): void;
+  pressureWheelMotion(intensity: number, deltaMs: number): void;
 }
 
 export interface Level2InteractionLayer {
   readonly container: Container;
+  resetView(): void;
   refresh(): void;
   update(deltaMs: number): void;
   destroy(): void;
@@ -92,7 +97,11 @@ export function createLevel2InteractionLayer(
     dispatch: handlers.dispatch,
     panelOpened: handlers.panelOpened,
     panelClosed: handlers.panelClosed,
-    controlStep: handlers.controlStep
+    controlStep: handlers.controlStep,
+    interfaceClick: handlers.interfaceClick,
+    buttonPress: handlers.buttonPress,
+    ignitionStarter: handlers.ignitionStarter,
+    pressureWheelMotion: handlers.pressureWheelMotion
   }, panelFrames, panelNameplates, panelHardware);
   const activeViews: Array<{ zone: ZoneDefinition; target: Container; outline: Graphics; shine: Container; progress: number; active: boolean }> = [];
   let refreshAccumulator = 0;
@@ -164,6 +173,11 @@ export function createLevel2InteractionLayer(
 
   return {
     container,
+    resetView() {
+      puzzleOverlays.close();
+      container.eventMode = "auto";
+      this.refresh();
+    },
     refresh() {
       const state = handlers.snapshot();
       pressureWarning.abnormal = isPressureAbnormal(state);

@@ -89,6 +89,20 @@ describe("Level 2 WebMCP boundaries", () => {
     registration.dispose();
   });
 
+  it("does not expose console recall until both trace-producing puzzles are complete", async () => {
+    const { active, modelContext, dialogue, session } = harness();
+    const registration = await registerLevel2Tools(modelContext, dialogue, session, {
+      onConnected() {}, onEvent() {}, onWarning() {}, onProcessing() {}
+    });
+    expect(active.has("recall_console_code")).toBe(false);
+    session.dispatch({ type: "DEV_SOLVE_WATER" });
+    expect(active.has("recall_console_code")).toBe(false);
+    session.dispatch({ type: "DEV_SOLVE_IGNITION" });
+    await active.get("signal_processing")?.execute();
+    expect(active.has("recall_console_code")).toBe(true);
+    registration.dispose();
+  });
+
   it("keeps audible transmission available when environmental drain exhausted AUX", async () => {
     const { active, modelContext, dialogue, session } = harness();
     session.dispatch({ type: "SPEND_RESERVE", amount: session.snapshot().reserve, reason: "test drain" });

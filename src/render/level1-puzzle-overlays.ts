@@ -22,6 +22,7 @@ export interface Level1PuzzleHandlers {
 export interface Level1PuzzleOverlays {
   readonly container: Container;
   open(id: Level1PuzzleId): void;
+  close(): void;
   mistakeBurst(): boolean;
   refresh(): void;
   update(deltaMs: number): void;
@@ -514,6 +515,7 @@ export function createLevel1PuzzleOverlays(
   drawWaveform();
   return {
     container,
+    close: () => close(false, true),
     open(id) {
       close(false, true);
       active = id;

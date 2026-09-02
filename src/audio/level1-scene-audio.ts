@@ -1,12 +1,21 @@
 import { applyMasterVolume } from "./mix";
 
 const AUDIO_ROOT = "/assets/audio/level1";
+const PUZZLE_AUDIO_ROOT = "/assets/audio/puzzles";
 
 const SPARK_VARIANTS = ["spark-01.mp3", "spark-02.mp3", "spark-03.mp3"] as const;
 const STEAM_VARIANTS = ["steam-01.mp3", "steam-02.mp3", "steam-03.mp3", "steam-04.mp3"] as const;
 
 const makeAudio = (file: string, volume: number, loop = false): HTMLAudioElement => {
   const audio = new Audio(`${AUDIO_ROOT}/${file}`);
+  audio.preload = loop ? "auto" : "metadata";
+  audio.volume = applyMasterVolume(volume);
+  audio.loop = loop;
+  return audio;
+};
+
+const makePuzzleAudio = (file: string, volume: number, loop = false): HTMLAudioElement => {
+  const audio = new Audio(`${PUZZLE_AUDIO_ROOT}/${file}`);
   audio.preload = loop ? "auto" : "metadata";
   audio.volume = applyMasterVolume(volume);
   audio.loop = loop;
@@ -22,6 +31,13 @@ export class Level1SceneAudio {
   private readonly panelClose = makeAudio("panel-close.mp3", 0.24);
   private readonly panelError = makeAudio("panel-error.mp3", 0.30);
   private readonly controlClunk = makeAudio("panel-close.mp3", 0.11);
+  private readonly interfaceClicks = Array.from({ length: 4 }, () => makePuzzleAudio("interface-click.mp3", 0.28));
+  private readonly buttonPresses = Array.from({ length: 4 }, () => makePuzzleAudio("button-press.mp3", 0.23));
+  private readonly rhythmHits = Array.from({ length: 4 }, () => makePuzzleAudio("ignition-hit.mp3", 0.28));
+  private readonly rhythmMisses = Array.from({ length: 4 }, () => makePuzzleAudio("ignition-miss.mp3", 0.24));
+  private readonly ignitionStarter = makePuzzleAudio("ignition-starter.mp3", 0.34);
+  private readonly puzzleCorrect = makePuzzleAudio("puzzle-correct.mp3", 0.34);
+  private readonly pressureWheel = makePuzzleAudio("pressure-wheel.mp3", 0, true);
   private unlocked = false;
   private menuActive = false;
   private sceneActive = false;
@@ -37,6 +53,11 @@ export class Level1SceneAudio {
   private ignitionHumContext: AudioContext | null = null;
   private ignitionHumOscillator: OscillatorNode | null = null;
   private ignitionHumGain: GainNode | null = null;
+  private interfaceClickCursor = 0;
+  private buttonPressCursor = 0;
+  private rhythmHitCursor = 0;
+  private rhythmMissCursor = 0;
+  private pressureWheelLevel = 0;
   muted = false;
 
   private readonly onVisibilityChange = () => {
@@ -117,6 +138,54 @@ export class Level1SceneAudio {
     if (this.canPlay()) this.playOneShot(this.controlClunk);
   }
 
+  playInterfaceClick(): void {
+    if (!this.canPlay()) return;
+    this.playOneShot(this.interfaceClicks[this.interfaceClickCursor++ % this.interfaceClicks.length]!);
+  }
+
+  playButtonPress(): void {
+    if (!this.canPlay()) return;
+    this.playOneShot(this.buttonPresses[this.buttonPressCursor++ % this.buttonPresses.length]!);
+  }
+
+  playPuzzleCorrect(): void {
+    if (this.canPlay()) this.playOneShot(this.puzzleCorrect);
+  }
+
+  playStarterSpark(): void {
+    if (!this.canPlay()) return;
+    const audio = this.sparks[this.sparkCursor++ % this.sparks.length]!;
+    this.playOneShot(audio);
+  }
+
+  playIgnitionStarter(): void {
+    if (this.canPlay()) this.playOneShot(this.ignitionStarter);
+  }
+
+  playRhythmResult(success: boolean): void {
+    if (!this.canPlay()) return;
+    const rates = success ? [0.92, 1.06, 1.2, 1.34] : [0.68, 0.78, 0.88, 0.74];
+    const cursor = success ? this.rhythmHitCursor++ : this.rhythmMissCursor++;
+    const pool = success ? this.rhythmHits : this.rhythmMisses;
+    const audio = pool[cursor % pool.length]!;
+    audio.playbackRate = rates[cursor % rates.length]!;
+    this.playOneShot(audio);
+  }
+
+  setPressureWheelMotion(intensity: number, deltaMs: number): void {
+    const target = this.canPlay() ? Math.min(1, Math.max(0, intensity)) : 0;
+    const response = target > this.pressureWheelLevel ? 0.28 : Math.min(1, deltaMs / 480);
+    this.pressureWheelLevel += (target - this.pressureWheelLevel) * response;
+    this.pressureWheel.volume = applyMasterVolume(0.25 * this.pressureWheelLevel);
+    if (target > 0.01) this.pressureWheel.playbackRate = 0.55 + target * 1.15;
+    if (this.pressureWheelLevel > 0.015 && this.pressureWheel.paused) void this.pressureWheel.play().catch(() => {});
+    if (this.pressureWheelLevel <= 0.015 && target === 0) {
+      this.pressureWheel.pause();
+      this.pressureWheel.currentTime = 0;
+      this.pressureWheelLevel = 0;
+    }
+  }
+
   setIgnitionHumRate(rateIndex: number | null): void {
     this.ignitionHumRate = rateIndex;
     this.syncIgnitionHum();
@@ -151,6 +220,9 @@ export class Level1SceneAudio {
     this.panelClose.muted = this.muted;
     this.panelError.muted = this.muted;
     this.controlClunk.muted = this.muted;
+    this.puzzleCorrect.muted = this.muted;
+    this.pressureWheel.muted = this.muted;
+    for (const audio of [this.ignitionStarter, ...this.interfaceClicks, ...this.buttonPresses, ...this.rhythmHits, ...this.rhythmMisses]) audio.muted = this.muted;
     if (shouldPlayAmbient) void this.ambient.play().catch(() => {});
     else this.ambient.pause();
     if (shouldPlayAlarm) void this.alarm.play().catch(() => {});
@@ -183,7 +255,7 @@ export class Level1SceneAudio {
 
   destroy(): void {
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
-    for (const audio of [this.ambient, this.alarm, this.panelOpen, this.panelClose, this.panelError, this.controlClunk, ...this.sparks, ...this.steam]) {
+    for (const audio of [this.ambient, this.alarm, this.panelOpen, this.panelClose, this.panelError, this.controlClunk, this.puzzleCorrect, this.pressureWheel, this.ignitionStarter, ...this.interfaceClicks, ...this.buttonPresses, ...this.rhythmHits, ...this.rhythmMisses, ...this.sparks, ...this.steam]) {
       audio.pause();
       audio.removeAttribute("src");
       audio.load();

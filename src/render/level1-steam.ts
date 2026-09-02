@@ -1,8 +1,8 @@
-import { Container, Graphics } from "pixi.js";
+import { Container, Sprite, Texture } from "pixi.js";
 import type { Level1LightingStage } from "./level1-spec";
 
 interface SteamParticle {
-  readonly node: Graphics;
+  readonly node: Container;
   active: boolean;
   x: number;
   y: number;
@@ -96,18 +96,27 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-const PUFF_SHAPES = [
-  [-6, -2, -3, -7, 2, -8, 7, -4, 8, 1, 4, 7, -2, 8, -7, 4],
-  [-7, -3, -2, -8, 4, -7, 8, -2, 6, 5, 1, 8, -5, 6, -8, 1],
-  [-5, -6, 1, -8, 6, -5, 8, 1, 5, 7, -1, 8, -7, 4, -8, -2],
-  [-8, -1, -5, -6, 0, -8, 6, -6, 8, 0, 6, 6, 0, 8, -6, 5]
+const PUFF_BLOCKS = [
+  [[-6, -3, 12, 7], [-3, -7, 7, 14], [2, -4, 6, 8]],
+  [[-7, -3, 13, 7], [-2, -7, 7, 14], [-5, 1, 9, 6]],
+  [[-5, -6, 10, 12], [-7, -2, 14, 7], [0, 1, 7, 6]],
+  [[-7, -3, 14, 7], [-4, -7, 8, 14], [1, -5, 6, 10]]
 ] as const;
 
-function makePuff(variant: number): Graphics {
-  const shape = PUFF_SHAPES[variant % PUFF_SHAPES.length];
-  const puff = new Graphics()
-    .poly([...shape]).fill({ color: 0x77848a, alpha: 0.44 })
-    .poly(shape.map((value) => Math.round(value * 0.58))).fill({ color: 0x9ba5a8, alpha: 0.28 });
+function makePuff(variant: number): Container {
+  const puff = new Container();
+  const blocks = PUFF_BLOCKS[variant % PUFF_BLOCKS.length];
+  blocks.forEach(([x, y, width, height], index) => {
+    // Sprite quads avoid the intermittent polygon-index corruption that could
+    // stretch a steam puff into a giant white triangle after resize or shake.
+    const block = new Sprite(Texture.WHITE);
+    block.position.set(x, y);
+    block.width = width;
+    block.height = height;
+    block.tint = index === 1 ? 0x9ba5a8 : 0x77848a;
+    block.alpha = index === 1 ? 0.28 : 0.34;
+    puff.addChild(block);
+  });
   puff.visible = false;
   return puff;
 }

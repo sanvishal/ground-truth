@@ -15,7 +15,7 @@ export const LEVEL2_MAX_RESERVE = 10.5;
 const PRESSURE_DRIFT_MIN = 0.165;
 const PRESSURE_DRIFT_RANGE = 0.11;
 export const IGNITION_RATE_SPACING_MS: Readonly<Record<BallastRate, number>> = {
-  nominal: 1_100, elevated: 820, high: 620, maximum: 470
+  nominal: 1_100, elevated: 520, high: 380, maximum: 280
 };
 
 export type WaterSide = 0 | 1 | 2 | 3;
@@ -294,7 +294,7 @@ function makeIgnitionPattern(random: () => number): number[] {
 
 const IGNITION_ARROW_KEYS = ["ArrowLeft", "ArrowUp", "ArrowDown", "ArrowRight"] as const;
 const normalizeIgnitionKey = (key: string) => key.startsWith("Arrow") ? key : key.toUpperCase();
-const ignitionGain = (rate: BallastRate) => [6.5, 7.2, 8, 8.6][getBallastRateIndex(rate)]!;
+const ignitionGain = (rate: BallastRate) => [6.5, 8.2, 8.8, 9.4][getBallastRateIndex(rate)]!;
 const IGNITION_BLEED_PER_SECOND = 2.5;
 const IGNITION_MISS_PENALTY = 5;
 
@@ -394,7 +394,7 @@ export function applyLevel2Action(state: Level2State, action: Level2Action): Lev
         temperature,
         thermal,
         environmentAlarmMs,
-        reserve: Math.max(0, Math.round((state.reserve - alarmCharges * 0.5 - ignitionMissCount * 0.1) * 100) / 100),
+        reserve: Math.max(0, Math.round((state.reserve - alarmCharges * 0.25 - ignitionMissCount * 0.1) * 100) / 100),
         ignition,
         plant: { ...state.plant, stress, health: Math.round(stress) as 0 | 1 | 2 | 3 | 4 }
       }, [thermalAdvance.effect, ignitionEffect, alarmCharges > 0 ? "AUX_ENVIRONMENT_DRAIN" : undefined].filter((effect): effect is string => Boolean(effect)));
