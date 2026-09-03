@@ -38,13 +38,11 @@ If the relay loses KORE, send `reconnect` in the same Codex task. Copy the full 
 
 - **Language and frontend:** TypeScript, HTML, and CSS
 - **Rendering:** [PixiJS](https://pixijs.com/) with custom shaders
-- **Agent integration:** WebMCP through the browser's `document.modelContext` API
-- **Audio:** `@pixi/sound` and the Web Audio API, with SFX and music from [Pixabay](https://pixabay.com/)
+- **Audio:** SFX and music from [Pixabay](https://pixabay.com/)
 - **Visual assets:** Generated with GPT Image 2 and edited in Codex
-- **Build and testing:** Node.js, npm, Vite, the TypeScript compiler, and Vitest
 - **Save system:** Browser `localStorage`
-- **Analytics:** [Simple Analytics](https://www.simpleanalytics.com/)
 - **Development:** Built entirely inside Codex in a single thread
+- **Trailer footage and editing**: Minimax H3 Max, [Cap](http://cap.so/) and Codex
 
 ## Run locally
 
