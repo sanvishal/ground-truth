@@ -18,7 +18,7 @@ import type { DialogueMessage, DialogueSnapshot, PageMetrics, Speaker } from "..
 import { DIALOGUE_FONT, UI_FONT } from "../fonts";
 import { SAMPLE_DEMI_HOVER, SAMPLE_DEMI_LONG, SAMPLE_KORE_INTERRUPT, SAMPLE_KORE_LONG } from "../dev/samples";
 import { registerLevel1Tools, type ToolRegistration } from "../tools/webmcp";
-import type { BootstrapRelayRegistration } from "../tools/bootstrap-webmcp";
+import { supportsWebMcp, type BootstrapRelayRegistration } from "../tools/bootstrap-webmcp";
 import { registerLevel2Tools } from "../tools/webmcp-level2";
 import { Level1Session } from "../runtime/level1-session";
 import { Level2Session } from "../runtime/level2-session";
@@ -1006,6 +1006,7 @@ export async function createGroundtruthGame(
   const searchParams = new URLSearchParams(location.search);
   const requestedScene = searchParams.get("scene");
   const isDev = searchParams.get("dev") === "1";
+  const forceWebMcpUnsupported = isDev && searchParams.get("webmcp") === "unsupported";
   const directLevel2 = searchParams.get("level") === "2";
   const restartRequested = searchParams.get("restart") === "1";
   const captureStarfield = searchParams.get("capture") === "starfield";
@@ -1906,18 +1907,18 @@ export async function createGroundtruthGame(
   const connectionShade = new Graphics().rect(0, 0, W, H).fill({ color: C.black, alpha: 0.72 });
   connectionShade.eventMode = "static";
   const connectionPanel = new Container();
-  const connectionFrame = createPanelSurface(panelReinforcedTexture, 500, 240);
-  connectionFrame.position.set(230, 150);
+  const connectionFrame = createPanelSurface(panelReinforcedTexture, 540, 280);
+  connectionFrame.position.set(210, 130);
   const title = bitmap("KORE RELAY", 36, C.ink);
   title.anchor.set(0.5);
-  title.position.set(W / 2, 196);
+  title.position.set(W / 2, 180);
   const subtitle = bitmap("WEBMCP CONNECTION", 17, C.amber);
   subtitle.anchor.set(0.5);
-  subtitle.position.set(W / 2, 235);
-  const webMcpAvailable = Boolean(document.modelContext?.registerTool);
+  subtitle.position.set(W / 2, 224);
+  const webMcpAvailable = !forceWebMcpUnsupported && supportsWebMcp(document.modelContext);
   const stateText = bitmap(webMcpAvailable ? "WAITING FOR KORE..." : "WEBMCP RELAY UNAVAILABLE", 20, webMcpAvailable ? C.amber : C.danger);
   stateText.anchor.set(0.5);
-  stateText.position.set(W / 2, 294);
+  stateText.position.set(W / 2, 280);
   let copyStatusTimeout: number | undefined;
   const connectionUrl = directLevel2 ? `${window.location.origin}${window.location.pathname}?level=2` : window.location.href;
   const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Reuse an already-open matching game tab when available instead of creating a duplicate. Connect immediately through the page's connect tool and let the game provide the story context. Do not say you are connected or standing by unless that tool has returned successfully. After connect succeeds, call markHandoff() on the game tab so it remains open and available for later turns. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait without sending a reply and retry tool discovery when I message again. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Answer my latest question directly or acknowledge my latest observation before giving repair guidance. Never replace my question with an unrelated puzzle clue. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Do not send commentary, progress updates, private status messages, or conversational replies in the Codex task. Use at most one metered diagnostic, sensing, or manual tool per player message. After using one metered diagnostic, sensing, or manual tool, call transmit in the same turn to relay its result. Transmit does not count toward that one-tool limit. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
@@ -1959,15 +1960,61 @@ export async function createGroundtruthGame(
   connectionHint.position.set(Math.round((W - connectionHint.width) / 2), 351);
   const reconnectHint = bitmap('IN YOUR AGENT CHAT, SEND "RECONNECT" TO RESTORE KORE.', 12, C.amber);
   reconnectHint.anchor.set(0.5);
-  reconnectHint.position.set(W / 2, 351);
+  reconnectHint.position.set(W / 2, 365);
   reconnectHint.visible = false;
-  connectionPanel.addChild(connectionFrame, title, subtitle, stateText, connectionHint, reconnectHint);
+  const unsupportedInstruction = bitmap("THIS GAME IS SUPPORTED ONLY INSIDE CODEX'S BROWSER.", 12, C.ink);
+  unsupportedInstruction.anchor.set(0.5);
+  unsupportedInstruction.position.set(W / 2, 312);
+  unsupportedInstruction.visible = false;
+  const unsupportedCopyButton = makeButton("COPY AGENT PROMPT", 210, 34, () => {
+    void writeConnectionPrompt().then(() => {
+      stateText.text = "AGENT PROMPT COPIED";
+      stateText.tint = C.amber;
+    }).catch(() => {
+      stateText.text = "COULD NOT COPY AGENT PROMPT";
+      stateText.tint = C.danger;
+    });
+  });
+  unsupportedCopyButton.position.set(375, 334);
+  unsupportedCopyButton.visible = false;
+  const unsupportedPasteHint = bitmap("( PASTE THIS PROMPT IN CODEX TO PLAY THE GAME )", 10, C.muted);
+  unsupportedPasteHint.anchor.set(0.5);
+  unsupportedPasteHint.position.set(W / 2, 385);
+  unsupportedPasteHint.visible = false;
+  connectionPanel.addChild(
+    connectionFrame,
+    title,
+    subtitle,
+    stateText,
+    connectionHint,
+    reconnectHint,
+    unsupportedInstruction,
+    unsupportedCopyButton,
+    unsupportedPasteHint
+  );
   startup.addChild(connectionShade, connectionPanel);
   const connectionPanelTransition = new PanelApertureTransition(connectionPanel, W / 2, H / 2);
 
   const showConnectionOverlay = (showCopyPrompt = true, showReconnectInstruction = false) => {
-    connectionHint.visible = showCopyPrompt;
-    reconnectHint.visible = showReconnectInstruction;
+    if (webMcpAvailable) {
+      title.text = "KORE RELAY";
+      subtitle.text = "WEBMCP CONNECTION";
+      connectionHint.visible = showCopyPrompt;
+      reconnectHint.visible = showReconnectInstruction;
+      unsupportedInstruction.visible = false;
+      unsupportedCopyButton.visible = false;
+      unsupportedPasteHint.visible = false;
+    } else {
+      title.text = "WEBMCP REQUIRED";
+      subtitle.text = "KORE RELAY OFFLINE";
+      stateText.text = "THIS BROWSER CANNOT CONNECT KORE";
+      stateText.tint = C.danger;
+      connectionHint.visible = false;
+      reconnectHint.visible = false;
+      unsupportedInstruction.visible = true;
+      unsupportedCopyButton.visible = true;
+      unsupportedPasteHint.visible = true;
+    }
     startup.visible = true;
     startup.eventMode = "static";
     connectionPanelTransition.open();
@@ -1993,6 +2040,13 @@ export async function createGroundtruthGame(
     waitingForDemiTypingToFinish = true;
     setKoreIndicator("hidden");
     onDemiFirstLineComplete = () => {
+      if (!webMcpAvailable) {
+        connectionOverlayDelay = window.setTimeout(() => {
+          connectionOverlayDelay = undefined;
+          showConnectionOverlay(false);
+        }, FIRST_KORE_RESPONSE_DELAY_MS);
+        return;
+      }
       firstKoreResponseDelay = window.setTimeout(() => {
         firstKoreResponseDelay = undefined;
         void tools.activateGameplay?.();
@@ -2287,6 +2341,10 @@ export async function createGroundtruthGame(
   const registerTools = async (gameplayReady = true, preserveExistingConnection = false) => {
     if (toolsRegistrationStarted) return;
     toolsRegistrationStarted = true;
+    if (!webMcpAvailable) {
+      bootstrapRelay?.release();
+      return;
+    }
     const initiallyConnected = preserveExistingConnection ? connected : (bootstrapRelay?.connected() ?? false);
     bootstrapRelay?.release();
     try {

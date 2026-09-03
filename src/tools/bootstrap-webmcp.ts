@@ -6,10 +6,14 @@ export interface BootstrapRelayRegistration {
   release(): void;
 }
 
+export function supportsWebMcp(modelContext: ModelContext | undefined): modelContext is ModelContext {
+  return typeof modelContext?.registerTool === "function";
+}
+
 export function registerBootstrapRelay(modelContext: ModelContext | undefined): BootstrapRelayRegistration {
   let connected = false;
   const controller = new AbortController();
-  const ready = modelContext?.registerTool
+  const ready = supportsWebMcp(modelContext)
     ? Promise.resolve(modelContext.registerTool({
         name: "connect",
         description: "Connect KORE to Sanctuary while the game finishes loading. This tool only establishes standby and never operates the page for Demi.",

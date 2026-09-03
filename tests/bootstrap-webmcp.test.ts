@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerBootstrapRelay } from "../src/tools/bootstrap-webmcp";
+import { registerBootstrapRelay, supportsWebMcp } from "../src/tools/bootstrap-webmcp";
 
 describe("bootstrap WebMCP relay", () => {
+  it("detects support only when registerTool is callable", () => {
+    expect(supportsWebMcp(undefined)).toBe(false);
+    expect(supportsWebMcp({ registerTool: undefined } as unknown as ModelContext)).toBe(false);
+    expect(supportsWebMcp({ registerTool() {} })).toBe(true);
+  });
+
   it("exposes connect before game assets load and preserves the standby connection", async () => {
     let connectTool: ModelContextTool | undefined;
     const unregister = vi.fn();
