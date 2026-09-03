@@ -8,6 +8,10 @@ GROUNDTRUTH is a WebMCP co-op sci-fi puzzle game. You play Demi through the ship
 
 ## How to play
 
+Watch Video:
+https://github.com/user-attachments/assets/37c4c5b9-75ab-4b12-8551-a002b050d90b
+
+
 GROUNDTRUTH is designed for the Codex desktop app and its in-app browser.
 
 1. Open the Codex desktop app.
