@@ -8,11 +8,13 @@ GROUNDTRUTH is a WebMCP co-op sci-fi puzzle game. You play Demi through the ship
 
 ## How to play
 
-Watch Video:
+### Setup tutorial
+
+Watch the short setup tutorial before you begin:
+
 https://github.com/user-attachments/assets/37c4c5b9-75ab-4b12-8551-a002b050d90b
 
-
-GROUNDTRUTH is designed for the Codex desktop app and its in-app browser.
+GROUNDTRUTH is designed to be played inside Codex desktop app and its in-app browser.
 
 1. Open the Codex desktop app.
 2. Start a new task and select either `gpt-5.6-terra` or `gpt-5.6-sol`. Fast mode is preferred (Normal mode works too).
@@ -32,7 +34,19 @@ If the relay loses KORE, send `reconnect` in the same Codex task. Copy the full 
 
 - GROUNDTRUTH is playable only in the Codex in-app browser. Other browsers do not currently provide the WebMCP connection KORE needs.
 - If the browser closes or KORE cannot connect, send `reconnect` to your agent in the same Codex task.
-- If the browser does not appear, it may have opened in picture-in-picture mode. Double-click the browser preview to open it beside the task. You can also make the browser full screen for a better experience.
+- If the browser does not appear, it may have opened in picture-in-picture mode. Double-click the browser preview to open it beside the task. You can also make the browser full screen for a better experience. See the [how to play](#how-to-play) section for a walkthrough.
+
+## Tech stack
+
+- **Language and frontend:** TypeScript, HTML, and CSS
+- **Rendering:** [PixiJS](https://pixijs.com/) with custom shaders
+- **Agent integration:** WebMCP through the browser's `document.modelContext` API
+- **Audio:** `@pixi/sound` and the Web Audio API, with SFX and music from [Pixabay](https://pixabay.com/)
+- **Visual assets:** Generated with GPT Image 2 and edited in Codex
+- **Build and testing:** Node.js, npm, Vite, the TypeScript compiler, and Vitest
+- **Save system:** Browser `localStorage`
+- **Analytics:** [Simple Analytics](https://www.simpleanalytics.com/)
+- **Development:** Built entirely inside Codex in a single thread
 
 ## Run locally
 
