@@ -6,4 +6,5 @@ coverage/
 *.tmp
 qa-*.png
 qa-*.jpg
+design-qa.md
 .dev-server.pid

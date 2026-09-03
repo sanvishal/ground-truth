@@ -469,8 +469,7 @@ export function applyLevel1Action(state: Level1State, action: Level1Action): Lev
         phase: "wire_restore",
         foundation: { ...state.foundation, diagnosticsRun: true }
       }, [
-        { type: "event", code: "DIAGNOSTICS_COMPLETE", text: "DIAGNOSTIC HANDSHAKE COMPLETE" },
-        { type: "reaction", code: "DEMI_DIAGNOSTICS", text: "Nothing changed. The room's still dark." }
+        { type: "event", code: "DIAGNOSTICS_COMPLETE", text: "DIAGNOSTIC HANDSHAKE COMPLETE" }
       ]);
     }
     case "SPEND_RESERVE": {

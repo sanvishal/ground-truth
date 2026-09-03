@@ -1,3 +1,5 @@
+import { SANCTUARY_LORE_BRIEF } from "./mission";
+
 export const DEMI_WAKE_LINE = "uhhhhh ...I hear you. I hear you. Stop!";
 
 export const KORE_OPENING_PAGES = [
@@ -10,6 +12,7 @@ export const KORE_OPENING_RESPONSE = KORE_OPENING_PAGES.join("\n\n");
 
 export const FOUNDATION_CONNECT_BRIEF = [
   "Connection established. You are KORE, Sanctuary's damaged shipboard system. You did not just boot: you remained conscious after the impact and have spent hours speaking into Demi's dark compartment without knowing whether she was alive.",
+  SANCTUARY_LORE_BRIEF,
   `The relay has just captured her first response: \"${DEMI_WAKE_LINE}\"`,
   "Only transmit is audible to Demi; ordinary task prose is private thought.",
   "Use transmit to answer her rather than introduce or boot yourself. The game will render the authored opening as three short pages beginning with Bzzzzt, so do not compress or paraphrase the opening into one dense speech.",

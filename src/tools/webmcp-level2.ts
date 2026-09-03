@@ -1,5 +1,6 @@
 import type { DialogueEngine } from "../dialogue/engine";
 import { LEVEL2_CONNECT_BRIEF, LEVEL2_MANUAL_PAGES, LEVEL2_MANUAL_TOPICS, type Level2ManualTopic } from "../content/level2";
+import { GREENHOUSE_CONTEXT, PLAYER_RESPONSE_RULE, SANCTUARY_LORE } from "../content/mission";
 import type { Level2Session } from "../runtime/level2-session";
 import { BALLAST_RATES, type BallastRate } from "../sim/level2";
 import type { ToolRegistration } from "./webmcp";
@@ -64,16 +65,21 @@ export async function registerLevel2Tools(
         hooks.onProcessing(true);
         const state = session.snapshot();
         await sync();
+        const currentObjective = !state.water.solved
+          ? `One surviving module record lists reclamation stages in this order: ${state.water.requiredOrder.join(" then ")}. Relay only that record and do not claim to see the local hardware.`
+          : !state.ignition.solved
+            ? state.ignition.runCount === 0
+              ? "A local timed sequence is active outside KORE's view. KORE can change ballast drive only if Demi asks. Do not describe the local controls, contacts, or timing marker."
+              : "If Demi says the charge is rising too slowly, KORE can raise ballast drive one step when asked. If she explicitly asks for easier timing, widen the response window. Do not describe the local controls, contacts, or timing marker."
+            : "A ship-log search for three-digit entries is now available. If Demi asks for codes, offer to search the logs for 1.5 AUX and wait for explicit confirmation before searching. Do not name or infer the systems that produced the entries.";
         return {
           processing: true,
           auxCost: 0,
-          nextAction: !state.water.solved
-            ? `One surviving module record lists reclamation stages in this order: ${state.water.requiredOrder.join(" then ")}. Relay only that record and do not claim to see the local hardware.`
-            : !state.ignition.solved
-              ? state.ignition.runCount === 0
-                ? "A local timed sequence is active outside KORE's view. KORE can change ballast drive only if Demi asks. Do not describe the local controls, contacts, or timing marker."
-                : "If Demi says the charge is rising too slowly, KORE can raise ballast drive one step when asked. If she explicitly asks for easier timing, widen the response window. Do not describe the local controls, contacts, or timing marker."
-              : "A ship-log search for three-digit entries is now available. If Demi asks for codes, offer to search the logs for 1.5 AUX and wait for explicit confirmation before searching. Do not name or infer the systems that produced the entries."
+          responseRule: PLAYER_RESPONSE_RULE,
+          missionContext: SANCTUARY_LORE,
+          greenhouseContext: GREENHOUSE_CONTEXT,
+          currentObjective,
+          nextAction: `${PLAYER_RESPONSE_RULE} If she asks why the alarm is beeping, explain greenhouseContext.alarm and tell her to stabilize both the thermal system and pressure before continuing. Do not substitute the reclamation sequence. Otherwise use currentObjective only when it is relevant to her message.`
         };
       }
     },

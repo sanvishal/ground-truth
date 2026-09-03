@@ -1,4 +1,5 @@
 import type { DialogueEngine } from "../dialogue/engine";
+import { PLAYER_RESPONSE_RULE, SANCTUARY_LORE } from "../content/mission";
 import {
   FOUNDATION_CONNECT_BRIEF,
   FOUNDATION_DIAGNOSTICS,
@@ -217,7 +218,15 @@ export async function registerLevel1Tools(
           : state.door.diverted && !state.door.opened
             ? "The door feed is live. Call commit_door only if Demi's latest message says 'doorway clear, commit.' Otherwise call transmit and say exactly: 'Inspect the doorway. If it is clear and you want me to open it, say: doorway clear, commit.' Do not ask for separate authorization or clearance messages. Do not spend AUX on another manual page."
           : null;
-        return { processing: true, audible: false, auxCost: 0, nextAction };
+        return {
+          processing: true,
+          audible: false,
+          auxCost: 0,
+          responseRule: PLAYER_RESPONSE_RULE,
+          missionContext: SANCTUARY_LORE,
+          currentObjective: nextAction,
+          nextAction: `${PLAYER_RESPONSE_RULE} ${nextAction ?? "If she is asking about Sanctuary, the mission, the impact, the crew, KORE, the alarm, or AUX, answer from missionContext without spending AUX."}`
+        };
       }
     },
     transmit: {

@@ -47,6 +47,20 @@ describe("Level 2 WebMCP boundaries", () => {
     registration.dispose();
   });
 
+  it("answers direct mission and alarm questions before unrelated puzzle guidance", async () => {
+    const { active, modelContext, dialogue, session } = harness();
+    const registration = await registerLevel2Tools(modelContext, dialogue, session, {
+      onConnected() {}, onEvent() {}, onWarning() {}, onProcessing() {}
+    });
+    const processing = await active.get("signal_processing")?.execute() as Record<string, unknown>;
+    expect(processing.responseRule).toMatch(/Answer Demi's latest question directly/i);
+    expect(JSON.stringify(processing.missionContext)).toMatch(/one hundred forty-one years|fifteen crew/i);
+    expect(JSON.stringify(processing.greenhouseContext)).toMatch(/alarm.*pressure or temperature/i);
+    expect(JSON.stringify(processing.greenhouseContext)).toMatch(/stabilize both the thermal system and pressure/i);
+    expect(processing.nextAction).toMatch(/do not substitute the reclamation sequence/i);
+    registration.dispose();
+  });
+
   it("replaces lamp sensing with KORE-controlled ballast and explicit timing assist", async () => {
     const { active, modelContext, dialogue, session } = harness();
     const registration = await registerLevel2Tools(modelContext, dialogue, session, {

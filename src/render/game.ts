@@ -58,6 +58,8 @@ const W = 960;
 const H = 540;
 const GAME_H = 420;
 const DIALOGUE_H = H - GAME_H;
+const COLD_OPEN_SETTLE_DELAY_MS = 650;
+const FIRST_KORE_RESPONSE_DELAY_MS = 1_200;
 const C = {
   black: 0x030506,
   nearBlack: 0x080b0d,
@@ -111,7 +113,7 @@ interface MenuStarfield {
   destroy(): void;
 }
 
-function createMenuStarfield(asteroidSheetTexture: Texture): MenuStarfield {
+function createMenuStarfield(asteroidSheetTexture: Texture, captureMode = false): MenuStarfield {
   const container = new Container();
   const starLayer = new Container();
   const asteroidLayer = new Container();
@@ -211,7 +213,33 @@ function createMenuStarfield(asteroidSheetTexture: Texture): MenuStarfield {
     rotationSpeed: number;
     parallax: number;
   }> = [];
-  let nextAsteroidPairAt = 3800;
+  let nextAsteroidPairAt = captureMode ? Number.POSITIVE_INFINITY : 3800;
+  const addAsteroid = (
+    frameIndex: number,
+    depthIndex: number,
+    size: number,
+    x: number,
+    y: number,
+    speedX: number,
+    speedY: number,
+    rotation: number,
+    rotationSpeed: number
+  ) => {
+    const depth = asteroidDepths[depthIndex];
+    const node = new Sprite(asteroidFrames[frameIndex]);
+    node.anchor.set(0.5);
+    node.scale.set(size / node.texture.width);
+    node.roundPixels = true;
+    node.alpha = depth.alpha;
+    node.rotation = rotation;
+    node.position.set(x, y);
+    asteroidBands[depthIndex].addChild(node);
+    activeAsteroids.push({ node, x, y, speedX, speedY, rotationSpeed, parallax: depth.parallax });
+  };
+  if (captureMode) {
+    addAsteroid(2, 1, 42, 300, 205, 3.2, 0.6, -0.24, 0.015);
+    addAsteroid(6, 2, 58, 700, 345, 4.1, 0.8, 0.38, -0.012);
+  }
   const spawnAsteroidPair = () => {
     const firstDepth = Math.floor(eventRandom() * asteroidDepths.length);
     for (let index = 0; index < 2; index += 1) {
@@ -980,6 +1008,7 @@ export async function createGroundtruthGame(
   const isDev = searchParams.get("dev") === "1";
   const directLevel2 = searchParams.get("level") === "2";
   const restartRequested = searchParams.get("restart") === "1";
+  const captureStarfield = searchParams.get("capture") === "starfield";
   let useLevel2Scene = requestedScene === "level2-proof" || directLevel2;
   // Level 1 is now the real/default game scene. Keep the original dialogue
   // room available as an explicit fallback for isolated dialogue testing.
@@ -1891,7 +1920,7 @@ export async function createGroundtruthGame(
   stateText.position.set(W / 2, 294);
   let copyStatusTimeout: number | undefined;
   const connectionUrl = directLevel2 ? `${window.location.origin}${window.location.pathname}?level=2` : window.location.href;
-  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Connect immediately and let the game provide the story context. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Use at most one metered diagnostic, sensing, or manual tool per player message. After using one metered diagnostic, sensing, or manual tool, call transmit in the same turn to relay its result. Transmit does not count toward that one-tool limit. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
+  const connectionPrompt = `Open ${connectionUrl} in the in-app browser and play GROUNDTRUTH with me. You are KORE and I am Demi. Reuse an already-open matching game tab when available instead of creating a duplicate. Connect immediately through the page's connect tool and let the game provide the story context. Do not say you are connected or standing by unless that tool has returned successfully. After connect succeeds, call markHandoff() on the game tab so it remains open and available for later turns. Use only the page's WebMCP tools to interact with the game. Do not inspect or operate the game through screenshots, Computer Use, browser controls, DOM, accessibility tools, Playwright, or coordinate clicks. If WebMCP exposes no tools, wait without sending a reply and retry tool discovery when I message again. Do not click Begin, advance dialogue, or perform any action for me. Never refer to either of us in third person. Do not inspect source code or operate physical objects for me. KORE cannot see, name, or know the layout of controls in Demi's compartment. Never tell Demi to open a named panel or move a specific physical control. State KORE's internal readings, constraints, and hints, then let Demi decide what to inspect or operate. At the start of every later player message, refresh the page's WebMCP tools and call signal_processing exactly once. Answer my latest question directly or acknowledge my latest observation before giving repair guidance. Never replace my question with an unrelated puzzle clue. Follow any nextAction it returns. Only transmit is audible to me; ordinary task prose is private thought. Do not send commentary, progress updates, private status messages, or conversational replies in the Codex task. Use at most one metered diagnostic, sensing, or manual tool per player message. After using one metered diagnostic, sensing, or manual tool, call transmit in the same turn to relay its result. Transmit does not count toward that one-tool limit. After I report a physical action, use newly available verification tools instead of asking me to repeat completed work. Do not use em dashes in spoken dialogue.`;
   const writeConnectionPrompt = () => navigator.clipboard.writeText(connectionPrompt);
   const copyPrompt = () => {
     void writeConnectionPrompt().then(() => {
@@ -1907,7 +1936,7 @@ export async function createGroundtruthGame(
     });
   };
   const connectionHint = new Container();
-  const hintLead = bitmap("( TRY MESSAGING YOUR AGENT TO CONNECT OR", 11, C.muted);
+  const hintLead = bitmap('( MESSAGE YOUR AGENT "RECONNECT" TO CONNECT OR COPY THE FULL PROMPT', 10, C.muted);
   const copyPromptButton = new Container();
   const copyPromptLabel = bitmap("COPY PROMPT", 12, C.amber);
   const copyPromptHitArea = new Graphics()
@@ -1955,6 +1984,8 @@ export async function createGroundtruthGame(
   let mainMenu: Container | null = null;
   let screenTransition: ScreenDitherTransition | null = null;
   let demiWakePlayed = false;
+  let coldOpenCompletionDelay: number | undefined;
+  let firstKoreResponseDelay: number | undefined;
   let connectionOverlayDelay: number | undefined;
   const beginWakeBeat = () => {
     if (demiWakePlayed) return;
@@ -1962,7 +1993,10 @@ export async function createGroundtruthGame(
     waitingForDemiTypingToFinish = true;
     setKoreIndicator("hidden");
     onDemiFirstLineComplete = () => {
-      void tools.activateGameplay?.();
+      firstKoreResponseDelay = window.setTimeout(() => {
+        firstKoreResponseDelay = undefined;
+        void tools.activateGameplay?.();
+      }, FIRST_KORE_RESPONSE_DELAY_MS);
       connectionOverlayDelay = window.setTimeout(() => {
         connectionOverlayDelay = undefined;
         if (!firstTransmissionStarted) showConnectionOverlay(true);
@@ -2156,7 +2190,13 @@ export async function createGroundtruthGame(
       sceneAudio.setColdOpenActive(false);
       enterScene();
       addEvent("COLD OPEN COMPLETE");
-      onComplete?.();
+      if (onComplete) {
+        if (coldOpenCompletionDelay !== undefined) window.clearTimeout(coldOpenCompletionDelay);
+        coldOpenCompletionDelay = window.setTimeout(() => {
+          coldOpenCompletionDelay = undefined;
+          onComplete();
+        }, COLD_OPEN_SETTLE_DELAY_MS);
+      }
     });
   };
 
@@ -2174,6 +2214,10 @@ export async function createGroundtruthGame(
     if (connectionOverlayDelay !== undefined) {
       window.clearTimeout(connectionOverlayDelay);
       connectionOverlayDelay = undefined;
+    }
+    if (firstKoreResponseDelay !== undefined) {
+      window.clearTimeout(firstKoreResponseDelay);
+      firstKoreResponseDelay = undefined;
     }
     sceneAudio.stopSceneSounds();
     sceneAudio.setPressureWheelMotion(0, 1_000);
@@ -2270,8 +2314,13 @@ export async function createGroundtruthGame(
         onConnected: () => {
           connected = true;
           setKoreIndicator("hidden");
-          stateText.text = "KORE CONNECTED. WAITING FOR TRANSMISSION...";
+          stateText.text = "KORE CONNECTED";
           connectionHint.visible = false;
+          if (connectionOverlayDelay !== undefined) {
+            window.clearTimeout(connectionOverlayDelay);
+            connectionOverlayDelay = undefined;
+          }
+          hideConnectionOverlay();
           if (!level1.snapshot().foundation.wakeResponseHeard) {
             level1.dispatch({ type: "DEMI_WAKE_RESPONSE", message: DEMI_WAKE_LINE });
           }
@@ -2282,7 +2331,8 @@ export async function createGroundtruthGame(
         },
         onTransmissionStarted: () => {
           firstTransmissionStarted = true;
-          enterSceneWithDither();
+          hideConnectionOverlay();
+          enterScene();
         },
         onEvent: addEvent,
         onWarning: (message) => addEvent("AUX WARNING", message),
@@ -2301,7 +2351,7 @@ export async function createGroundtruthGame(
   menu.hitArea = new Rectangle(0, 0, W, H);
   menu.addChild(new Graphics().rect(0, 0, W, H).fill(C.black));
 
-  const menuStarfield = createMenuStarfield(level1AsteroidsTexture);
+  const menuStarfield = createMenuStarfield(level1AsteroidsTexture, captureStarfield);
   menu.addChild(menuStarfield.container);
   menu.on("globalpointermove", (event) => {
     const local = event.getLocalPosition(menu);
@@ -2318,9 +2368,11 @@ export async function createGroundtruthGame(
   menuTitle.width = 690;
   menuTitle.height = menuTitle.width * titleLogoTexture.height / titleLogoTexture.width;
   menuTitle.roundPixels = true;
+  menuTitle.visible = !captureStarfield;
   const menuSubtitle = bitmap("A WEBMCP CO-OP GAME BY @tk_vishal_tk", 18, C.amber);
   menuSubtitle.anchor.set(0.5);
   menuSubtitle.position.set(W / 2, 309);
+  menuSubtitle.visible = !captureStarfield;
   menuSubtitle.eventMode = "static";
   menuSubtitle.cursor = "pointer";
   menuSubtitle.hitArea = new Rectangle(-menuSubtitle.width / 2, -menuSubtitle.height / 2, menuSubtitle.width, menuSubtitle.height);
@@ -2429,12 +2481,15 @@ export async function createGroundtruthGame(
     });
     resumeButton.position.set(290, 366);
     newGameButton.position.set(490, 366);
+    resumeButton.visible = !captureStarfield;
+    newGameButton.visible = !captureStarfield;
     menu.addChild(resumeButton, newGameButton);
   } else {
     const beginButton = makeMenuButton("BEGIN", () => {
       transitionFromMenu(() => playColdOpen(beginWakeBeat));
     });
     beginButton.position.set(390, 366);
+    beginButton.visible = !captureStarfield;
     menu.addChild(beginButton);
   }
   const howToPlayButton = makeMenuButton("HOW TO PLAY", () => {
@@ -2442,6 +2497,7 @@ export async function createGroundtruthGame(
     menuHelp.visible = true;
   });
   howToPlayButton.position.set(390, 426);
+  howToPlayButton.visible = !captureStarfield;
   menu.addChild(howToPlayButton, menuHelp);
   root.addChild(menu);
   sceneAudio.setMenuActive(true);
@@ -2673,6 +2729,8 @@ export async function createGroundtruthGame(
     activeTools: () => tools.activeTools(),
     destroy() {
       if (connectionOverlayDelay !== undefined) window.clearTimeout(connectionOverlayDelay);
+      if (coldOpenCompletionDelay !== undefined) window.clearTimeout(coldOpenCompletionDelay);
+      if (firstKoreResponseDelay !== undefined) window.clearTimeout(firstKoreResponseDelay);
       if (copyStatusTimeout !== undefined) window.clearTimeout(copyStatusTimeout);
       if (winEndingTimer !== undefined) window.clearTimeout(winEndingTimer);
       resizeObserver?.disconnect();
