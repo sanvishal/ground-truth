@@ -1,4 +1,4 @@
-import { BlurFilter, Container, Graphics, Rectangle } from "pixi.js";
+import { Container, Sprite, Texture } from "pixi.js";
 import type { Level1LightingStage } from "./level1-spec";
 import { stepSparkParticle, type SparkParticleState } from "./spark-physics";
 
@@ -19,13 +19,13 @@ export interface SparkEmitterDefinition {
 interface RuntimeEmitter extends SparkEmitterDefinition {
   nextBurst: number;
   flareLife: number;
-  readonly flare: Graphics;
+  readonly flare: Container;
   burstLight: RuntimeBurstLight | null;
 }
 
 interface RuntimeSpark {
-  readonly node: Graphics;
-  readonly glow: Graphics;
+  readonly node: Container;
+  readonly glow: Container;
   readonly state: SparkParticleState;
   active: boolean;
   floorY: number;
@@ -34,8 +34,7 @@ interface RuntimeSpark {
 }
 
 interface RuntimeBurstLight {
-  readonly node: Graphics;
-  readonly filter: BlurFilter;
+  readonly node: Sprite;
   age: number;
   triggered: boolean;
   holdLife: number;
@@ -81,36 +80,68 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function makeSparkGraphic(): Graphics {
-  const spark = new Graphics()
-    .rect(-2, -5, 4, 10).fill({ color: 0xff6d22, alpha: 0.16 })
-    .rect(-1, -4, 2, 8).fill({ color: 0xffa42e, alpha: 0.82 })
-    .rect(0, -3, 1, 6).fill({ color: 0xffe082, alpha: 1 });
+function rectSprite(x: number, y: number, width: number, height: number, tint: number, alpha: number): Sprite {
+  const sprite = new Sprite(Texture.WHITE);
+  sprite.position.set(x, y);
+  sprite.width = width;
+  sprite.height = height;
+  sprite.tint = tint;
+  sprite.alpha = alpha;
+  return sprite;
+}
+
+function makeSparkGraphic(): Container {
+  const spark = new Container();
+  spark.addChild(
+    rectSprite(-2, -5, 4, 10, 0xff6d22, 0.16),
+    rectSprite(-1, -4, 2, 8, 0xffa42e, 0.82),
+    rectSprite(0, -3, 1, 6, 0xffe082, 1)
+  );
   spark.blendMode = "add";
   spark.visible = false;
   return spark;
 }
 
-function makeSparkGlow(): Graphics {
-  const glow = new Graphics()
-    .rect(-2, -5, 4, 10).fill({ color: 0xff7b22, alpha: 0.52 })
-    .rect(-1, -4, 2, 8).fill({ color: 0xffc044, alpha: 0.42 });
+function makeSparkGlow(): Container {
+  const glow = new Container();
+  glow.addChild(
+    rectSprite(-3, -6, 6, 12, 0xff7b22, 0.26),
+    rectSprite(-2, -5, 4, 10, 0xffc044, 0.36)
+  );
   glow.blendMode = "add";
   glow.visible = false;
   return glow;
 }
 
-function makeFlare(x: number, y: number): Graphics {
-  const flare = new Graphics()
-    .rect(-8, -1, 16, 2).fill({ color: 0xff8a24, alpha: 0.35 })
-    .rect(-1, -8, 2, 16).fill({ color: 0xff8a24, alpha: 0.35 })
-    .rect(-4, -1, 8, 2).fill({ color: 0xffe080, alpha: 0.95 })
-    .rect(-1, -4, 2, 8).fill({ color: 0xffe080, alpha: 0.95 })
-    .rect(-1, -1, 3, 3).fill(0xfff1bc);
+function makeFlare(x: number, y: number): Container {
+  const flare = new Container();
+  flare.addChild(
+    rectSprite(-7, -1, 14, 2, 0xff8a24, 0.2),
+    rectSprite(-1, -7, 2, 14, 0xff8a24, 0.2),
+    rectSprite(-4, -1, 8, 2, 0xffe080, 0.68),
+    rectSprite(-1, -4, 2, 8, 0xffe080, 0.68),
+    rectSprite(-1, -1, 3, 3, 0xfff1bc, 0.82)
+  );
   flare.position.set(x, y);
   flare.blendMode = "add";
   flare.visible = false;
   return flare;
+}
+
+function makeBurstGlowTexture(): Texture {
+  const size = 72;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) return Texture.WHITE;
+  const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(255, 246, 190, 0.22)");
+  gradient.addColorStop(0.2, "rgba(255, 167, 58, 0.1)");
+  gradient.addColorStop(1, "rgba(255, 112, 24, 0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+  return Texture.from(canvas);
 }
 
 export function createLevel1SparkSystem(
@@ -122,11 +153,8 @@ export function createLevel1SparkSystem(
   const glowLayer = new Container();
   const flareLayer = new Container();
   const particleLayer = new Container();
-  const sceneFilterArea = new Rectangle(0, 0, 960, 420);
-  const glowFilter = new BlurFilter({ strength: 2.2, quality: 1 });
-  glowLayer.filters = [glowFilter];
-  glowLayer.filterArea = sceneFilterArea;
   container.addChild(burstLightLayer, glowLayer, flareLayer, particleLayer);
+  const burstGlowTexture = makeBurstGlowTexture();
 
   const random = seededRandom(0x53504152);
   const emitters: RuntimeEmitter[] = emitterDefinitions.map((definition, index) => {
@@ -161,19 +189,17 @@ export function createLevel1SparkSystem(
   let stage: Level1LightingStage = 1;
 
   const createBurstLight = (emitter: RuntimeEmitter): RuntimeBurstLight => {
-    const filter = new BlurFilter({ strength: 10, quality: 1 });
-    const node = new Graphics()
-      .circle(0, 0, 25).fill({ color: 0xff8c32, alpha: 0.18 })
-      .circle(0, 0, 10).fill({ color: 0xffd36a, alpha: 0.2 });
+    const node = new Sprite(burstGlowTexture);
+    node.anchor.set(0.5);
+    node.width = 72;
+    node.height = 72;
     node.position.set(emitter.x, emitter.y);
     node.blendMode = "add";
-    node.filters = [filter];
     node.alpha = 0;
     node.scale.set(0.55);
     burstLightLayer.addChild(node);
     const light: RuntimeBurstLight = {
       node,
-      filter,
       age: 0,
       triggered: false,
       holdLife: 0.18,
@@ -300,8 +326,6 @@ export function createLevel1SparkSystem(
         const fadeAge = light.age - light.holdLife;
         if (fadeAge >= light.fadeLife) {
           burstLightLayer.removeChild(light.node);
-          light.node.filters = [];
-          light.filter.destroy();
           light.node.destroy();
           burstLights.splice(index, 1);
           continue;
@@ -318,13 +342,9 @@ export function createLevel1SparkSystem(
     },
     destroy() {
       for (const light of burstLights) {
-        light.node.filters = [];
-        light.filter.destroy();
         light.node.destroy();
       }
       burstLights.length = 0;
-      glowLayer.filters = [];
-      glowFilter.destroy();
     }
   };
 }

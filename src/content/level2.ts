@@ -8,6 +8,8 @@ export const LEVEL2_CONNECT_BRIEF = [
   "Only transmit is audible to Demi. Do not use em dashes in spoken dialogue. Do not routinely begin transmissions with Demi's name; reserve it for urgency or emphasis."
 ].join(" ");
 
+export const LEVEL2_ENTRY_TRANSMISSION = "Greenhouse link acquired. Environmental telemetry is unreliable. This might be our only chance to save everything. I need your eyes again.";
+
 export const LEVEL2_MANUAL_TOPICS = ["specimen_record", "emitter_spec", "module_systems"] as const;
 export type Level2ManualTopic = typeof LEVEL2_MANUAL_TOPICS[number];
 

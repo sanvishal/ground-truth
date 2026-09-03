@@ -11,7 +11,6 @@ import {
 import { TubeLightFilter } from "./tube-light-filter";
 import { createLevel1SparkSystem } from "./level1-sparks";
 import { createLevel1SteamSystem } from "./level1-steam";
-import { SparkPixelateFilter } from "./spark-pixelate-filter";
 
 export { LEVEL1_LIGHTING_STAGES, LEVEL1_SCENE_HEIGHT, LEVEL1_SCENE_WIDTH, type Level1LightingStage } from "./level1-spec";
 export type { TubeLightSettings } from "./level1-lighting";
@@ -532,9 +531,9 @@ export function createLevel1CompositorProof(
   const steam = createLevel1SteamSystem(soundEvents.steamJetStart);
   const sparks = createLevel1SparkSystem(soundEvents.sparkBurst);
   const pixelatedEffects = new Container();
-  const effectsPixelateFilter = new SparkPixelateFilter(2);
-  pixelatedEffects.filters = [effectsPixelateFilter];
-  pixelatedEffects.filterArea = new Rectangle(0, 0, LEVEL1_SCENE_WIDTH, LEVEL1_SCENE_HEIGHT);
+  // Every effect is already authored from pixel-aligned texture quads. Keeping
+  // them in a full-scene filter target made a shaken frame vulnerable to one
+  // of that target's two triangles flashing white on some WebGL drivers.
   pixelatedEffects.addChild(windowCracks, steam.container, sparks.container);
   container.addChild(backdrop, room, space, pixelatedEffects, foreground);
 
@@ -775,8 +774,6 @@ export function createLevel1CompositorProof(
       tubeLightingFilter.destroy();
       steam.destroy();
       sparks.destroy();
-      pixelatedEffects.filters = [];
-      effectsPixelateFilter.destroy();
       container.destroy({ children: true });
       spaceField.destroy();
     }

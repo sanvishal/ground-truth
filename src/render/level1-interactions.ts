@@ -1,4 +1,4 @@
-import { BitmapText, BlurFilter, Container, Graphics, MeshRope, Point, Polygon, Rectangle, Sprite } from "pixi.js";
+import { BitmapText, BlurFilter, Container, Graphics, MeshRope, Point, Polygon, Rectangle, Sprite, Texture } from "pixi.js";
 import { UI_FONT } from "../fonts";
 import { LEVEL1_WIRES, type ContinuitySequence, type Level1State, type SignalGlyph, type WireId, type WirePort } from "../sim/level1";
 import { createLevel1PuzzleOverlays, type Level1PuzzleId } from "./level1-puzzle-overlays";
@@ -96,6 +96,37 @@ const DOOR_EXIT_SHAPE = [
   794, 95
 ] as const;
 
+function makeShineBand(
+  height: number,
+  topLeft: number,
+  topRight: number,
+  bottomLeft: number,
+  bottomRight: number,
+  color: number,
+  alpha: number
+): Sprite {
+  const minX = Math.min(topLeft, topRight, bottomLeft, bottomRight);
+  const maxX = Math.max(topLeft, topRight, bottomLeft, bottomRight);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(maxX - minX));
+  canvas.height = Math.max(1, Math.ceil(height));
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+    context.beginPath();
+    context.moveTo(topLeft - minX, 0);
+    context.lineTo(topRight - minX, 0);
+    context.lineTo(bottomRight - minX, height);
+    context.lineTo(bottomLeft - minX, height);
+    context.closePath();
+    context.fill();
+  }
+  const band = new Sprite(Texture.from(canvas));
+  band.position.set(minX, 0);
+  band.alpha = alpha;
+  return band;
+}
+
 export function createLevel1InteractionLayer(
   handlers: Level1InteractionHandlers,
   dev = false,
@@ -158,18 +189,24 @@ export function createLevel1InteractionLayer(
     else outline.roundRect(zone.box.x, zone.box.y, zone.box.width, zone.box.height, 2).stroke({ color: 0xe2a348, width: 1, alpha: 0.9 });
     outline.alpha = !isSceneObservation && dev ? 0.34 : 0;
     if (!isSceneObservation && !isDoorExit) outlines.push(outline);
-    const shineMask = new Graphics();
-    if (isDoorExit) shineMask.poly([...DOOR_EXIT_SHAPE]).fill(0xffffff);
-    else shineMask.roundRect(zone.box.x, zone.box.y, zone.box.width, zone.box.height, 2).fill(0xffffff);
+    const shineMask = isDoorExit
+      ? new Graphics().poly([...DOOR_EXIT_SHAPE]).fill(0xffffff)
+      : (() => {
+          const sprite = new Sprite(Texture.WHITE);
+          sprite.position.set(zone.box.x, zone.box.y);
+          sprite.width = zone.box.width;
+          sprite.height = zone.box.height;
+          return sprite;
+        })();
     shineMask.eventMode = "none";
     const shine = new Container();
     const shineColor = isDoorExit ? 0x83d1a1 : 0xe2a348;
     const shineHot = isDoorExit ? 0xb8f5ca : 0xffc96f;
     const shineCore = isDoorExit ? 0xe0ffe8 : 0xffe2ad;
     shine.addChild(
-      new Graphics().poly([-38, 0, 22, 0, 64, zone.box.height, 4, zone.box.height]).fill({ color: shineColor, alpha: isDoorExit ? 0.11 : 0.07 }),
-      new Graphics().poly([-15, 0, 18, 0, 55, zone.box.height, 22, zone.box.height]).fill({ color: shineHot, alpha: isDoorExit ? 0.15 : 0.1 }),
-      new Graphics().poly([2, 0, 14, 0, 48, zone.box.height, 36, zone.box.height]).fill({ color: shineCore, alpha: isDoorExit ? 0.18 : 0.13 })
+      makeShineBand(zone.box.height, -38, 22, 4, 64, shineColor, isDoorExit ? 0.11 : 0.07),
+      makeShineBand(zone.box.height, -15, 18, 22, 55, shineHot, isDoorExit ? 0.15 : 0.1),
+      makeShineBand(zone.box.height, 2, 14, 36, 48, shineCore, isDoorExit ? 0.18 : 0.13)
     );
     shine.position.set(zone.box.x - 80, zone.box.y);
     shine.mask = shineMask;

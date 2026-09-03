@@ -45,6 +45,7 @@ import {
   LEVEL_TRANSITION_SHEET
 } from "../content/level-transition";
 import { GAME_OVER_PANELS, WIN_ENDING_PANELS } from "../content/endings";
+import { LEVEL2_ENTRY_TRANSMISSION } from "../content/level2";
 import { createColdOpenSequence } from "./cold-open-sequence";
 import { ScreenDitherTransition } from "./screen-dither-transition";
 import { PanelApertureTransition } from "./panel-aperture-transition";
@@ -1452,7 +1453,7 @@ export async function createGroundtruthGame(
       addEvent(effect.replaceAll("_", " "));
       if (effect === "WATER_FLOWING") {
         addEvent("FAINT WATER CONSOLE TRACE", transition.state.water.digits);
-        dialogue.reactDemi(`${spokenDigits(transition.state.water.digits)}... or maybe that's just the water console noise.`, "world");
+        dialogue.reactDemi(`${spokenDigits(transition.state.water.digits)}. The readout changed when the pumps settled.`, "world");
       }
       if ((effect === "THERMAL_PORTS_REMAPPED" || effect === "THERMAL_PORTS_REMAPPED_FIRST") && transition.state.thermal.panelOpen) sceneAudio.playControlClunk();
       if (effect === "IGNITION_HIT") sceneAudio.playRhythmResult(true);
@@ -1462,7 +1463,7 @@ export async function createGroundtruthGame(
       if (effect === "IGNITION_COMPLETE") {
         sceneAudio.playPuzzleCorrect();
         addEvent("FAINT IGNITION CONSOLE TRACE", transition.state.ignition.digits);
-        dialogue.reactDemi(`${spokenDigits(transition.state.ignition.digits)}... or maybe that's just the display noise.`, "world");
+        dialogue.reactDemi(`${spokenDigits(transition.state.ignition.digits)}. It only flashed for a second before the light sparked.`, "world");
         startImpactShake(performance.now());
       }
       if (effect === "POD_OPENED" || effect === "DEV_POD_OPENED") {
@@ -2184,6 +2185,13 @@ export async function createGroundtruthGame(
     gameLayer.position.set(0, 0);
     nextImpactShakeAt = 0;
     impactShakeEndsAt = 0;
+
+    // Retire the final Level 1 transmission without discarding the saved log.
+    // The greenhouse opens with its own authored KORE observation instead.
+    dialogue.reset();
+    capturedMessageIds.clear();
+    savedDialogueKey = "";
+    dialogue.receiveKore(LEVEL2_ENTRY_TRANSMISSION);
 
     useLevel1Scene = false;
     useLevel2Scene = true;
